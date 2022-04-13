@@ -1,0 +1,7 @@
+matflow
+plotly
+pandas
+scipy
+jupyter
+matplotlib
+vecmaths
