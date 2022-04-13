@@ -371,6 +371,7 @@ class PhaseFieldModelPreProcessor:
     def __init__(self, workflow_dir, segmentation_sub_dir="segmentation"):
         self.workflow_dir = Path(workflow_dir)
         self.segmentation_sub_dir = self.workflow_dir.joinpath(segmentation_sub_dir)
+        self.segmentation_sub_dir.mkdir(exist_ok=True)
 
         self.workflow = load_workflow(self.workflow_dir)
 
@@ -445,6 +446,9 @@ class Clusterer:
         slice_selection,
         parameters,
     ):
+
+        if not isinstance(slice_selection, SliceSelection):
+            slice_selection = SliceSelection(**slice_selection)
 
         self.pre_processor = pre_processor
 
@@ -1158,6 +1162,14 @@ class MTEX_FMC_Clusterer(Clusterer):
         if self.prepare_segmentation(redo) is None:
             return
 
+        params = copy.deepcopy(self.parameters)
+
+        if "MTEX_script_path" not in params:
+            params["MTEX_script_path"] = "segment_slice.m"
+
+        if "specimen_symmetry" not in params:
+            params["specimen_symmetry"] = "triclinic"
+
         # DAMASK uses P=-1 convention:
         eulers_flat = quat2euler(self.slice_data["quats_flat"], degrees=True, P=-1)
 
@@ -1170,7 +1182,7 @@ class MTEX_FMC_Clusterer(Clusterer):
             filename=ori_data_path,
         )
 
-        script_path = Path(self.parameters["MTEX_script_path"])
+        script_path = Path(params["MTEX_script_path"])
         copied_script_path = self.seg_dir.joinpath(script_path.name)
         copied_script_path.write_bytes(script_path.read_bytes())
 
@@ -1178,32 +1190,40 @@ class MTEX_FMC_Clusterer(Clusterer):
         if self.slice_selection.is_periodic:
             fig_resolution *= 3
 
-        # modify crystal_symmetries so it's a list (instead of dict), with the correct
-        # orderering (i.e. as in phase index in the MTEX EBSD file):
-        MTEX_args = copy.deepcopy(self.parameters)
-        MTEX_args["crystal_symmetries"] = [
-            MTEX_args["crystal_symmetries"][phase_name]
+        phase_syms = {k: v["lattice"] for k, v in self.element.inputs.phases.items()}
+        sym_lookup = {
+            "hP": "hexagonal",
+            "cI": "cubic",
+        }
+        crys_syms = [
+            {
+                "symmetry": sym_lookup[phase_syms[phase_name]],
+                "mineral": phase_name,
+                "unit_cell_alignment": {"x": "a"},  # DAMASK alignment
+            }
             for phase_name in self.slice_data["phase_names"]
         ]
 
-        JSON_path = self.seg_dir.joinpath("MTEX_args.json")
+        params["crystal_symmetries"] = crys_syms
+
+        args_JSON_path = self.seg_dir.joinpath("MTEX_args.json")
         working_dir = str(self.seg_dir)
         MTEX_data = {
-            **MTEX_args,
+            **params,
             "fig_resolution": fig_resolution,
             "orientations_data_path": str(ori_data_path),
             "working_dir": working_dir,
         }
-        write_MTEX_JSON_file(data=MTEX_data, filename=JSON_path)
+        write_MTEX_JSON_file(data=MTEX_data, filename=args_JSON_path)
 
         logger.info("Running MTEX script...")
-        out = run_matlab_script(
+        matlab_grain_IDs = run_matlab_script(
             script_name=str(script_path.stem),
             script_dir=working_dir,
-            args=[str(JSON_path)],
+            args=[str(args_JSON_path)],
             nargout=1,
         )
-        grain_IDs = np.array(out)
+        grain_IDs = np.array(matlab_grain_IDs)
 
         logger.info("Finished MTEX script.")
         self.grain_IDs = grain_IDs
