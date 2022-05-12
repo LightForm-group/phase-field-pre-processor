@@ -1194,6 +1194,7 @@ class MTEX_FMC_Clusterer(Clusterer):
         sym_lookup = {
             "hP": "hexagonal",
             "cI": "cubic",
+            "cF": "cubic",
         }
         crys_syms = [
             {
