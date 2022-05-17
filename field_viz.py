@@ -663,7 +663,7 @@ class RVEFieldViz:
 
     @property
     def grid_size(self):
-        return self._first_field_data['data'].shape[1:4]
+        return self.field_data['phase']['data'].shape
 
     def get_num_increments(self, name):
         return len(self.get_increments(name))
