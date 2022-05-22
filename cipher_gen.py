@@ -10,18 +10,23 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from discrete_voronoi import DiscreteVoronoi
 
 
-def generate_voxel_phase_map(num_phases, grid_size, size):
-    rng = np.random.default_rng()
+def generate_voxel_phase_map(num_phases, grid_size, size, **kwargs):
+    rng = np.random.default_rng(seed=kwargs.get("seed"))
     seeds = np.hstack(
         [
             rng.integers(0, grid_size[0], (num_phases, 1)),
             rng.integers(0, grid_size[1], (num_phases, 1)),
         ]
     )
-    if np.array(grid_size).ndim == 3:
+    if np.array(grid_size).size == 3:
         seeds = np.hstack([seeds, rng.integers(0, grid_size[2], (num_phases, 1))])
 
-    vor = DiscreteVoronoi(seeds=seeds, grid_size=grid_size, size=size, periodic=True)
+    vor = DiscreteVoronoi(
+        seeds=seeds,
+        grid_size=grid_size,
+        size=size,
+        periodic=True,
+    )
     voxel_phase = vor.voxel_assignment
     return voxel_phase
 
@@ -129,10 +134,17 @@ class CIPHERGeometry:
 
     @classmethod
     def from_random_voronoi(
-        cls, num_phases, volume_fractions, interfaces, material_names, grid_size, size
+        cls,
+        num_phases,
+        volume_fractions,
+        interfaces,
+        material_names,
+        grid_size,
+        size,
+        **kwargs,
     ):
 
-        voxel_phase = generate_voxel_phase_map(num_phases, grid_size, size)
+        voxel_phase = generate_voxel_phase_map(num_phases, grid_size, size, **kwargs)
         if not np.sum(volume_fractions) == 1:
             raise ValueError("`volume_fractions` must sum to 1.")
 
@@ -317,6 +329,7 @@ def generate_CIPHER_input(
     components,
     outputs,
     solution_parameters,
+    **kwargs,
 ):
     """
     Parameters
@@ -341,6 +354,7 @@ def generate_CIPHER_input(
         material_names=list(materials.keys()),
         grid_size=grid_size,
         size=size,
+        **kwargs,
     )
 
     cipher_inputs = CIPHERInput(
