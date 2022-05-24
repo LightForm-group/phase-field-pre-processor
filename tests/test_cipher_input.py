@@ -2,7 +2,7 @@ from textwrap import dedent
 import pytest
 
 import numpy as np
-from cipher_gen import compress_1D_array_string, decompress_1D_array_string
+from cipher_input import compress_1D_array_string, decompress_1D_array_string
 
 
 def test_expected_compresss_1D_array():
