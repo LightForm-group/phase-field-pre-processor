@@ -5,18 +5,7 @@ from vecmaths.geometry import get_box_xyz
 
 from scipy.spatial import KDTree
 
-
-def euclidean_distance_matrix(a, b, use_loop=False):
-    print(f"a.shape: {a.shape}; b.shape: {b.shape}")
-    if use_loop:
-        dist = []
-        for b_i in b:
-            dist_i = np.linalg.norm(a[:, None, :] - b_i[None, None, :], axis=-1)
-            dist.append(dist_i)
-        dist = np.array(dist)
-        return dist
-    else:
-        return np.linalg.norm(a[:, None, :] - b[None, :, :], axis=-1)
+from voxel_map import VoxelMap
 
 
 def get_coordinate_grid(size, grid_size):
@@ -36,28 +25,30 @@ def get_coordinate_grid(size, grid_size):
     return coords, element_size
 
 
-class DiscreteVoronoi:
+class DiscreteVoronoi(VoxelMap):
     def __init__(
         self,
-        seeds,
+        region_seeds,
         grid_size,
         size=None,
-        periodic=False,
+        is_periodic=True,
+        random_seed=None,
     ):
         """
         Parameters
         ----------
-        seeds : list or ndarray of shape (N, 2) or (N, 3)
-            Row vectors of seed positions in 2D or 3D
+        region_seeds : list or ndarray of shape (N, 2) or (N, 3)
+            Row vectors of seed positions in 2D or 3D. Must be coordinates within real-space
+            `size`.
         grid_size : list or ndarray of length 2 or 3
         size : list or ndarray of length 2 or 3, optional
             If not specified, a unit square/box is used.
-        periodic : bool, optional
-            Should the seeds and box be considered periodic. By default, False.
+        is_periodic : bool, optional
+            Should the seeds and box be considered periodic. By default, True.
 
         """
 
-        seeds = np.asarray(seeds)
+        region_seeds = np.asarray(region_seeds)
         grid_size = np.asarray(grid_size)
         dimension = grid_size.size
 
@@ -65,53 +56,108 @@ class DiscreteVoronoi:
             size = [1] * dimension
         size = np.asarray(size)
 
-        self.seeds = seeds
-        self.grid_size = grid_size
-        self.dimension = dimension
-        self.size = size
-        self.periodic = periodic
+        if size.size != grid_size.size:
+            raise ValueError(
+                f"`size` ({size}) implies {size.size} dimensions, but `grid_size` "
+                f"({grid_size}) implies {grid_size.size} dimensions."
+            )
 
-        self.element_size, self.coords, self.voxel_assignment = self._assign_voxels()
+        if region_seeds.shape[1] != grid_size.size:
+            raise ValueError(
+                f"Specified `region_seeds` should be of shape (num_phases, "
+                f"{grid_size.size}), but `region_seeds` has shape: {region_seeds.shape}"
+            )
 
-        self.coords_flat = self.coords.reshape(-1, self.dimension)
-        self.voxel_assignment_flat = self.voxel_assignment.reshape(-1)
+        bad_seeds = np.logical_or(region_seeds < 0, region_seeds > size)
+        if np.any(bad_seeds):
+            raise ValueError(
+                f"`region_seeds` must be coordinates within `size` ({size})."
+            )
 
-    def _assign_voxels(self):
+        self.seeds = region_seeds
+        self.seeds_grid = (grid_size * region_seeds / size).astype(int)
+        self.random_seed = random_seed
+
+        region_ID = self._get_region_ID(size, grid_size, is_periodic, dimension)
+
+        super().__init__(
+            region_ID=region_ID,
+            size=size,
+            is_periodic=is_periodic,
+        )
+
+    @classmethod
+    def from_random(
+        cls,
+        size,
+        grid_size,
+        num_regions=None,
+        random_seed=None,
+        is_periodic=True,
+    ):
+        region_seeds = cls.get_random_seeds(
+            num_regions=num_regions,
+            size=size,
+            random_seed=random_seed,
+        )
+        return cls(
+            size=size,
+            grid_size=grid_size,
+            region_seeds=region_seeds,
+            random_seed=random_seed,
+            is_periodic=is_periodic,
+        )
+
+    @classmethod
+    def from_seeds(
+        cls,
+        size,
+        grid_size,
+        region_seeds=None,
+        random_seed=None,
+        is_periodic=True,
+    ):
+        return cls(
+            size=size,
+            grid_size=grid_size,
+            region_seeds=region_seeds,
+            random_seed=random_seed,
+            is_periodic=is_periodic,
+        )
+
+    @staticmethod
+    def get_random_seeds(num_regions, size, random_seed=None):
+        size = np.asarray(size)
+        rng = np.random.default_rng(seed=random_seed)
+        seeds = rng.random((num_regions, size.size)) * size
+        return seeds
+
+    def _get_region_ID(self, size, grid_size, is_periodic, dimension):
         """Assign voxels to their closest seed point.
 
         Returns
         -------
-        tuple
-            element_size : ndarray of shape (`dimension`,)
-            coords: ndarray of shape (*grid_size, `dimension`)
-                Cartesian coordinates of the element centres
-            voxel_assignment : ndarray of shape `grid_size`
-                The index of the closest seed for each voxel.
+        region_ID
+            The index of the closest seed for each voxel.
 
         """
 
         # Get coordinates of grid element centres:
-        coords, element_size = get_coordinate_grid(self.size, self.grid_size)
-        coords_flat = coords.reshape(-1, self.dimension)
+        coords, _ = get_coordinate_grid(size, grid_size)
+        coords_flat = coords.reshape(-1, dimension)
+        tree = KDTree(self.seeds_grid, boxsize=size if is_periodic else None)
+        region_ID = tree.query(coords_flat)[1].reshape(coords.shape[:-1])
 
-        boxsize = self.size if self.periodic else None
-        tree = (
-            KDTree(self.seeds, boxsize=boxsize, balanced_tree=False)
-            if self.periodic
-            else KDTree(self.seeds)
-        )
-        voxel_assignment = tree.query(coords_flat)[1].reshape(coords.shape[:-1])
-
-        return element_size.flatten(), coords, voxel_assignment
+        return region_ID
 
     @property
     def num_seeds(self):
-        return self.seeds.shape[0]
+        return self.seeds_grid.shape[0]
 
     @property
     def seeds_periodic_mapping(self):
         "Map periodic seed indices back to base seed indices."
-        return np.tile(np.arange(self.seeds.shape[0]), 3**self.dimension)
+        return np.tile(np.arange(self.seeds_grid.shape[0]), 3**self.dimension)
 
     @property
     def seeds_periodic(self):
@@ -140,7 +186,7 @@ class DiscreteVoronoi:
                 ]
             )
 
-        seeds_periodic = np.concatenate(trans[:, None] + self.seeds)
+        seeds_periodic = np.concatenate(trans[:, None] + self.seeds_grid)
         return seeds_periodic
 
     def show(self, show_voxels=False, show_periodic_seeds=False, layout=None):
@@ -160,7 +206,7 @@ class DiscreteVoronoi:
         )
         region_boundaries_approx = self.coords[region_boundaries_approx_idx]
 
-        seed_data = self.seeds_periodic if show_periodic_seeds else self.seeds
+        seed_data = self.seeds_periodic if show_periodic_seeds else self.seeds_grid
 
         if self.dimension == 2:
             data = [

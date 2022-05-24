@@ -1,6 +1,8 @@
+from multiprocessing.sharedctypes import Value
 from pathlib import Path
 from pprint import pprint
 from dataclasses import dataclass
+from random import random
 from typing import Optional, List, Union, Tuple, Dict
 
 import numpy as np
@@ -8,6 +10,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from discrete_voronoi import DiscreteVoronoi
+from voxel_map import VoxelMap
 
 
 def generate_voxel_phase_map(num_phases, grid_size, size, **kwargs):
@@ -22,7 +25,7 @@ def generate_voxel_phase_map(num_phases, grid_size, size, **kwargs):
         seeds = np.hstack([seeds, rng.integers(0, grid_size[2], (num_phases, 1))])
 
     vor = DiscreteVoronoi(
-        seeds=seeds,
+        region_seeds=seeds,
         grid_size=grid_size,
         size=size,
         periodic=True,
@@ -104,12 +107,39 @@ class InterfaceDefinition:
 
 
 class CIPHERGeometry:
-    def __init__(self, voxel_phase, phase_material, material_names, interfaces, size):
+    def __init__(
+        self,
+        phase_material,
+        material_names,
+        interfaces,
+        size,
+        seeds=None,
+        voxel_phase=None,
+        voxel_map=None,
+    ):
+
+        if sum(i is not None for i in (voxel_phase, voxel_map)) != 1:
+            raise ValueError(f"Specify exactly one of `voxel_phase` and `voxel_map`")
+
+        if voxel_map is None:
+            voxel_map = VoxelMap(region_ID=voxel_phase, size=size, is_periodic=True)
+        else:
+            voxel_phase = voxel_map.region_ID
+
         self.voxel_phase = voxel_phase
+        self.voxel_map = voxel_map
+
         self.phase_material = phase_material
         self.material_names = material_names
         self.interfaces = interfaces
-        self.size = size
+        self.size = np.asarray(size)
+        self.seeds = seeds
+
+        if self.size.size != self.dimension:
+            raise ValueError(
+                f"`size` ({self.size}) implies {self.size.size} dimensions, but "
+                f"`voxel_phase` implies {self.voxel_phase.dimension} dimensions."
+            )
 
         for idx, i in enumerate(self.interfaces):
             i.index = idx
@@ -117,8 +147,22 @@ class CIPHERGeometry:
         self._interface_map = self._get_interface_map()
 
     @property
+    def dimension(self):
+        return self.voxel_map.dimension
+
+    @property
     def grid_size(self):
-        return self.voxel_phase.shape
+        return np.array(self.voxel_map.grid_size)
+
+    @property
+    def neighbour_voxels(self):
+        return self.voxel_map.neighbour_voxels
+
+    @property
+    def neighbour_list(self):
+        return self.voxel_map.neighbour_list
+
+    # def get_interface_idx(self, interface_map):
 
     @property
     def interface_names(self):
@@ -132,6 +176,90 @@ class CIPHERGeometry:
     def interface_map(self):
         return self._interface_map
 
+    @property
+    def seeds_grid(self):
+        return np.round(self.grid_size * self.seeds / self.size, decimals=0).astype(int)
+
+    @staticmethod
+    def get_random_seeds(num_phases, size, random_seed=None):
+        size = np.asarray(size)
+        rng = np.random.default_rng(seed=random_seed)
+        seeds = rng.random((num_phases, size.size)) * size
+        return seeds
+
+    @classmethod
+    def from_voronoi(
+        cls,
+        volume_fractions,
+        interfaces,
+        material_names,
+        grid_size,
+        size,
+        seeds=None,
+        num_phases=None,
+        random_seed=None,
+    ):
+
+        if np.sum(volume_fractions) != 1:
+            raise ValueError("`volume_fractions` must sum to 1.")
+
+        if sum(i is not None for i in (seeds, num_phases)) != 1:
+            raise ValueError(f"Specify exactly one of `seeds` and `num_phases`")
+
+        if seeds is None:
+            vor_map = DiscreteVoronoi.from_random(
+                num_regions=num_phases,
+                grid_size=grid_size,
+                size=size,
+                is_periodic=True,
+                random_seed=random_seed,
+            )
+
+        else:
+            vor_map = DiscreteVoronoi.from_seeds(
+                region_seeds=seeds,
+                grid_size=grid_size,
+                size=size,
+                is_periodic=True,
+            )
+
+        num_materials = len(volume_fractions)
+        phase_material = np.random.choice(
+            a=num_materials,
+            size=vor_map.num_regions,
+            p=volume_fractions,
+        )
+
+        return cls(
+            voxel_map=vor_map,
+            phase_material=phase_material,
+            material_names=material_names,
+            interfaces=interfaces,
+            size=size,
+            seeds=seeds,
+        )
+
+    @classmethod
+    def from_seed_voronoi(
+        cls,
+        seeds,
+        volume_fractions,
+        interfaces,
+        material_names,
+        grid_size,
+        size,
+        random_seed=None,
+    ):
+        return cls.from_voronoi(
+            volume_fractions=volume_fractions,
+            interfaces=interfaces,
+            material_names=material_names,
+            grid_size=grid_size,
+            size=size,
+            seeds=seeds,
+            random_seed=random_seed,
+        )
+
     @classmethod
     def from_random_voronoi(
         cls,
@@ -141,30 +269,25 @@ class CIPHERGeometry:
         material_names,
         grid_size,
         size,
-        **kwargs,
+        random_seed=None,
     ):
-
-        voxel_phase = generate_voxel_phase_map(num_phases, grid_size, size, **kwargs)
-        if not np.sum(volume_fractions) == 1:
-            raise ValueError("`volume_fractions` must sum to 1.")
-
-        num_materials = len(volume_fractions)
-        phase_material = np.random.choice(
-            a=num_materials, size=num_phases, p=volume_fractions
-        )
-
-        return cls(
-            voxel_phase=voxel_phase,
-            phase_material=phase_material,
-            material_names=material_names,
+        return cls.from_voronoi(
+            volume_fractions=volume_fractions,
             interfaces=interfaces,
+            material_names=material_names,
+            grid_size=grid_size,
             size=size,
+            num_phases=num_phases,
+            random_seed=random_seed,
         )
 
     @property
     def volume_fractions(self):
         _, frequency = np.unique(self.phase_material, return_counts=True)
         return frequency / self.num_phases
+
+    def get_interface_idx(self):
+        return self.voxel_map.get_interface_idx(self._get_interface_map())
 
     def _get_interface_map_indices(self, mat_A, mat_B):
         """Get an array of integer indices that index the (upper triangle of the) 2D
@@ -272,10 +395,107 @@ class CIPHERInput:
     outputs: List
     solution_parameters: Dict
 
+    @classmethod
+    def from_voronoi(
+        cls,
+        grid_size,
+        size,
+        volume_fractions,
+        materials,
+        interfaces,
+        components,
+        outputs,
+        solution_parameters,
+        seeds=None,
+        num_phases=None,
+        random_seed=None,
+    ):
+        if len(volume_fractions) != len(materials):
+            raise ValueError(
+                f"`volume_fractions` (length {len(volume_fractions)}) must be of equal "
+                f"length to `materials` (length {len(materials)})."
+            )
+
+        geometry = CIPHERGeometry.from_voronoi(
+            num_phases=num_phases,
+            seeds=seeds,
+            volume_fractions=volume_fractions,
+            interfaces=interfaces,
+            material_names=list(materials.keys()),
+            grid_size=grid_size,
+            size=size,
+            random_seed=random_seed,
+        )
+
+        inp = cls(
+            geometry=geometry,
+            materials=materials,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+        )
+        return inp
+
+    @classmethod
+    def from_seed_voronoi(
+        cls,
+        seeds,
+        grid_size,
+        size,
+        volume_fractions,
+        materials,
+        interfaces,
+        components,
+        outputs,
+        solution_parameters,
+        random_seed=None,
+    ):
+
+        return cls.from_voronoi(
+            seeds=seeds,
+            grid_size=grid_size,
+            size=size,
+            volume_fractions=volume_fractions,
+            materials=materials,
+            interfaces=interfaces,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+            random_seed=random_seed,
+        )
+
+    @classmethod
+    def from_random_voronoi(
+        cls,
+        num_phases,
+        grid_size,
+        size,
+        volume_fractions,
+        materials,
+        interfaces,
+        components,
+        outputs,
+        solution_parameters,
+        random_seed=None,
+    ):
+
+        return cls.from_voronoi(
+            num_phases=num_phases,
+            grid_size=grid_size,
+            size=size,
+            volume_fractions=volume_fractions,
+            materials=materials,
+            interfaces=interfaces,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+            random_seed=random_seed,
+        )
+
     def get_header(self):
         out = {
-            "grid": self.geometry.grid_size,
-            "size": self.geometry.size,
+            "grid": self.geometry.grid_size.tolist(),
+            "size": self.geometry.size.tolist(),
             "n_phases": self.geometry.num_phases,
             "materials": self.geometry.material_names,
             "interfaces": self.geometry.interface_names,
@@ -317,52 +537,3 @@ class CIPHERInput:
             yaml.dump(cipher_input_data, fp)
 
         return path
-
-
-def generate_CIPHER_input(
-    materials,
-    volume_fractions,
-    num_phases,
-    grid_size,
-    size,
-    interfaces,
-    components,
-    outputs,
-    solution_parameters,
-    **kwargs,
-):
-    """
-    Parameters
-    ----------
-
-    interfaces :
-        multiple types of the same phase-phase interface could be assigned in different ways:
-        randomly, some number fraction, manually (i.e. by phase index),
-
-    """
-
-    if len(volume_fractions) != len(materials):
-        raise ValueError(
-            f"`volume_fractions` (length {len(volume_fractions)}) must be of equal length "
-            f"to `materials` (length {len(materials)})."
-        )
-
-    geometry = CIPHERGeometry.from_random_voronoi(
-        num_phases=num_phases,
-        volume_fractions=volume_fractions,
-        interfaces=interfaces,
-        material_names=list(materials.keys()),
-        grid_size=grid_size,
-        size=size,
-        **kwargs,
-    )
-
-    cipher_inputs = CIPHERInput(
-        geometry=geometry,
-        materials=materials,
-        components=components,
-        outputs=outputs,
-        solution_parameters=solution_parameters,
-    )
-
-    return cipher_inputs
