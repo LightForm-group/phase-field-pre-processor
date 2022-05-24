@@ -295,7 +295,7 @@ class CIPHERGeometry:
     def get_interface_idx(self):
         return self.voxel_map.get_interface_idx(self.interface_map)
 
-    def _get_interface_map_indices(self, mat_A, mat_B):
+    def get_interface_map_indices(self, mat_A, mat_B):
         """Get an array of integer indices that index the (upper triangle of the) 2D
         symmetric interface map array, corresponding to a given material pair."""
 
@@ -340,7 +340,9 @@ class CIPHERGeometry:
                 )
             type_fracs = [i.type_fraction for i in int_defs]
             any_frac_set = any(i is not None for i in type_fracs)
-            any_manual_set = any(i.phase_pairs is not None for i in int_defs)
+            manual_set = [i.phase_pairs is not None for i in int_defs]
+            any_manual_set = any(manual_set)
+            all_manual_set = all(manual_set)
             if any_frac_set:
                 if any_manual_set:
                     raise ValueError(
@@ -349,7 +351,42 @@ class CIPHERGeometry:
                         f"for all defined interfaces. You cannot mix them."
                     )
 
-            if not any_manual_set:
+            all_phase_pairs = self.get_interface_map_indices(*mat_pair)
+            if any_manual_set:
+                if not all_manual_set:
+                    raise ValueError(
+                        f"For interface {mat_pair}, specify phase pairs manually for all "
+                        f"defined interfaces using `phase_pairs`, or specify `type_fraction`"
+                        f"for all defined interfaces. You cannot mix them."
+                    )
+
+                phase_pairs_by_type = {i.type_label: i.phase_pairs for i in int_defs}
+
+                # check that given phase_pairs combine to the set of all phase_pairs
+                # for this material-material pair:
+                all_given_phase_pairs = np.hstack([i.phase_pairs for i in int_defs])
+
+                # sort by first-phase, then second-phase, for comparison:
+                srt = np.lexsort(all_given_phase_pairs[::-1])
+                all_given_phase_pairs = all_given_phase_pairs[:, srt]
+
+                if all_given_phase_pairs.shape != all_phase_pairs.shape or not np.all(
+                    all_given_phase_pairs == all_phase_pairs
+                ):
+                    raise ValueError(
+                        f"Missing `phase_pairs` for interface {mat_pair}. The following "
+                        f"phase pairs must all be included for this interface: "
+                        f"{all_phase_pairs}"
+                    )
+
+                for int_i in int_defs:
+                    phase_pairs_i = int_i.phase_pairs
+                    int_map[phase_pairs_i[0], phase_pairs_i[1]] = int_i.index
+
+                    if not upper_tri_only:
+                        int_map[phase_pairs_i[1], phase_pairs_i[0]] = int_i.index
+
+            else:
                 # set default type fractions if missing
                 remainder_frac = 1 - sum(i for i in type_fracs if i is not None)
                 if remainder_frac > 0:
@@ -372,7 +409,6 @@ class CIPHERGeometry:
                     )
 
                 # assign phase_pairs according to type fractions:
-                all_phase_pairs = self._get_interface_map_indices(*mat_pair)
                 num_pairs = all_phase_pairs.shape[1]
                 type_nums_each = [round(i * num_pairs) for i in type_fracs]
                 type_nums = np.cumsum(type_nums_each)

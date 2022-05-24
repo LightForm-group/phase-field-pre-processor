@@ -143,7 +143,7 @@ class DiscreteVoronoi(VoxelMap):
                     f"number of regions (currently {num_regions}), or increasing the "
                     f"`grid_size` (currently {grid_size})."
                 )
-            elif idx % 1000 == 0:
+            elif idx % 1000 == 0 and idx > 0:
                 num_multi_counts = np.sum(counts > 1)
                 print(
                     f"Searching for random unique seeds (attempt "
