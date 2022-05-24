@@ -13,27 +13,6 @@ from discrete_voronoi import DiscreteVoronoi
 from voxel_map import VoxelMap
 
 
-def generate_voxel_phase_map(num_phases, grid_size, size, **kwargs):
-    rng = np.random.default_rng(seed=kwargs.get("seed"))
-    seeds = np.hstack(
-        [
-            rng.integers(0, grid_size[0], (num_phases, 1)),
-            rng.integers(0, grid_size[1], (num_phases, 1)),
-        ]
-    )
-    if np.array(grid_size).size == 3:
-        seeds = np.hstack([seeds, rng.integers(0, grid_size[2], (num_phases, 1))])
-
-    vor = DiscreteVoronoi(
-        region_seeds=seeds,
-        grid_size=grid_size,
-        size=size,
-        periodic=True,
-    )
-    voxel_phase = vor.voxel_assignment
-    return voxel_phase
-
-
 def compress_1D_array(arr):
 
     vals = []
