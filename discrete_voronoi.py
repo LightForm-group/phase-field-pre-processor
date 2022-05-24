@@ -95,9 +95,10 @@ class DiscreteVoronoi(VoxelMap):
         random_seed=None,
         is_periodic=True,
     ):
-        region_seeds = cls.get_random_seeds(
+        region_seeds = cls.get_unique_random_seeds(
             num_regions=num_regions,
             size=size,
+            grid_size=grid_size,
             random_seed=random_seed,
         )
         return cls(
@@ -125,6 +126,36 @@ class DiscreteVoronoi(VoxelMap):
             is_periodic=is_periodic,
         )
 
+    @classmethod
+    def get_unique_random_seeds(cls, num_regions, size, grid_size, random_seed=None):
+        """Get random seeds that occupy unique elements on the voxel grid."""
+        max_search_iter = 10_000
+        idx = 0
+        while idx == 0 or np.any(counts > 1):
+            random_seed = random_seed + idx if random_seed else None
+            seeds = cls.get_random_seeds(num_regions, size, random_seed)
+            seeds_grid = (grid_size * seeds / size).astype(int)
+            _, counts = np.unique(seeds_grid, return_counts=True, axis=0)
+            if idx > max_search_iter:
+                raise RuntimeError(
+                    f"Could not find unique random seeds positions (when placed on the "
+                    f"grid) in {max_search_iter} iterations. Consider reducing the "
+                    f"number of regions (currently {num_regions}), or increasing the "
+                    f"`grid_size` (currently {grid_size})."
+                )
+            elif idx % 1000 == 0:
+                num_multi_counts = np.sum(counts > 1)
+                print(
+                    f"Searching for random unique seeds (attempt "
+                    f"{idx}/{max_search_iter} had {num_multi_counts} repeated seeds)..."
+                )
+            idx += 1
+
+        if idx > 10:
+            print(f"Found random unique seeds in {idx} attempts.")
+
+        return seeds
+
     @staticmethod
     def get_random_seeds(num_regions, size, random_seed=None):
         size = np.asarray(size)
@@ -141,12 +172,15 @@ class DiscreteVoronoi(VoxelMap):
             The index of the closest seed for each voxel.
 
         """
+        print("Tessellating regions...", end="")
 
         # Get coordinates of grid element centres:
         coords, _ = get_coordinate_grid(size, grid_size)
         coords_flat = coords.reshape(-1, dimension)
         tree = KDTree(self.seeds_grid, boxsize=size if is_periodic else None)
         region_ID = tree.query(coords_flat)[1].reshape(coords.shape[:-1])
+
+        print("done!")
 
         return region_ID
 

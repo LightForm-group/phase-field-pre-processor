@@ -145,8 +145,6 @@ class CIPHERGeometry:
     def voxel_material(self):
         return self.phase_material[self.voxel_phase]
 
-    # def get_interface_idx(self, interface_map):
-
     @property
     def interface_names(self):
         return [i.name for i in self.interfaces]
@@ -164,11 +162,34 @@ class CIPHERGeometry:
         return np.round(self.grid_size * self.seeds / self.size, decimals=0).astype(int)
 
     @staticmethod
-    def get_random_seeds(num_phases, size, random_seed=None):
-        size = np.asarray(size)
+    def get_unique_random_seeds(num_phases, size, grid_size, random_seed=None):
+        return DiscreteVoronoi.get_unique_random_seeds(
+            num_regions=num_phases,
+            size=size,
+            grid_size=grid_size,
+            random_seed=random_seed,
+        )
+
+    @staticmethod
+    def assign_phase_material_randomly(
+        num_materials,
+        num_phases,
+        volume_fractions,
+        random_seed=None,
+    ):
+
+        print(
+            "Randomly assigning phases to materials according to volume_fractions...",
+            end="",
+        )
         rng = np.random.default_rng(seed=random_seed)
-        seeds = rng.random((num_phases, size.size)) * size
-        return seeds
+        phase_material = rng.choice(
+            a=num_materials,
+            size=num_phases,
+            p=volume_fractions,
+        )
+        print("done!")
+        return phase_material
 
     @classmethod
     def from_voronoi(
@@ -207,11 +228,12 @@ class CIPHERGeometry:
             )
 
         num_materials = len(volume_fractions)
-        rng = np.random.default_rng(seed=random_seed)
-        phase_material = rng.choice(
-            a=num_materials,
-            size=vor_map.num_regions,
-            p=volume_fractions,
+
+        phase_material = cls.assign_phase_material_randomly(
+            num_materials=num_materials,
+            num_phases=vor_map.num_regions,
+            volume_fractions=volume_fractions,
+            random_seed=random_seed,
         )
 
         return cls(
@@ -271,7 +293,7 @@ class CIPHERGeometry:
         return frequency / self.num_phases
 
     def get_interface_idx(self):
-        return self.voxel_map.get_interface_idx(self._get_interface_map())
+        return self.voxel_map.get_interface_idx(self.interface_map)
 
     def _get_interface_map_indices(self, mat_A, mat_B):
         """Get an array of integer indices that index the (upper triangle of the) 2D
@@ -297,6 +319,8 @@ class CIPHERGeometry:
         return map_idx_non_trivial
 
     def _get_interface_map(self, upper_tri_only=False):
+
+        print("Finding interface map matrix...", end="")
 
         int_map = np.zeros((self.num_phases, self.num_phases), dtype=int)
 
@@ -367,6 +391,8 @@ class CIPHERGeometry:
 
                     if not upper_tri_only:
                         int_map[phase_pairs_i[1], phase_pairs_i[0]] = int_i.index
+
+        print("done!")
 
         return int_map
 
@@ -506,11 +532,12 @@ class CIPHERInput:
                 )
             num_phases = np.unique(voxel_phase).size
             num_materials = len(volume_fractions)
-            rng = np.random.default_rng(seed=random_seed)
-            phase_material = rng.choice(
-                a=num_materials,
-                size=num_phases,
-                p=volume_fractions,
+
+            phase_material = CIPHERGeometry.assign_phase_material_randomly(
+                num_materials=num_materials,
+                num_phases=num_phases,
+                volume_fractions=volume_fractions,
+                random_seed=random_seed,
             )
 
         geometry = CIPHERGeometry(

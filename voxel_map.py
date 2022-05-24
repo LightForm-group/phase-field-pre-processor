@@ -123,13 +123,16 @@ class VoxelMap:
         return out
 
     def get_neighbour_voxels(self):
+        print("Finding neighbouring voxels...", end="")
         interface_voxels = np.copy(self.region_ID)
         interface_voxels[self.region_ID_bulk] = -1
+        print("done!")
         return interface_voxels
 
     def get_neighbour_list(self):
         """Get the pairs of regions that are neighbours"""
 
+        print("Finding neighbour list...", end="")
         region_boundary_above = np.array(
             [self.region_ID_flat, self.region_ID_above.reshape(-1)]
         )
@@ -170,6 +173,7 @@ class VoxelMap:
             )
 
         neighbours = np.unique(region_boundary_all, axis=1)
+        print("done!")
 
         return neighbours
 
