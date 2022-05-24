@@ -141,6 +141,10 @@ class CIPHERGeometry:
     def neighbour_list(self):
         return self.voxel_map.neighbour_list
 
+    @property
+    def voxel_material(self):
+        return self.phase_material[self.voxel_phase]
+
     # def get_interface_idx(self, interface_map):
 
     @property
@@ -203,7 +207,8 @@ class CIPHERGeometry:
             )
 
         num_materials = len(volume_fractions)
-        phase_material = np.random.choice(
+        rng = np.random.default_rng(seed=random_seed)
+        phase_material = rng.choice(
             a=num_materials,
             size=vor_map.num_regions,
             p=volume_fractions,
@@ -470,6 +475,59 @@ class CIPHERInput:
             solution_parameters=solution_parameters,
             random_seed=random_seed,
         )
+
+    @classmethod
+    def from_voxel_phase_map(
+        cls,
+        voxel_phase,
+        size,
+        materials,
+        interfaces,
+        components,
+        outputs,
+        solution_parameters,
+        random_seed=None,
+        volume_fractions=None,
+        phase_material=None,
+    ):
+        if sum(i is not None for i in (volume_fractions, phase_material)) != 1:
+            raise ValueError(
+                f"Specify exactly one of `phase_material` and `volume_fractions`"
+            )
+
+        if volume_fractions is not None:
+            if np.sum(volume_fractions) != 1:
+                raise ValueError("`volume_fractions` must sum to 1.")
+
+            if len(volume_fractions) != len(materials):
+                raise ValueError(
+                    f"`volume_fractions` (length {len(volume_fractions)}) must be of equal "
+                    f"length to `materials` (length {len(materials)})."
+                )
+            num_phases = np.unique(voxel_phase).size
+            num_materials = len(volume_fractions)
+            rng = np.random.default_rng(seed=random_seed)
+            phase_material = rng.choice(
+                a=num_materials,
+                size=num_phases,
+                p=volume_fractions,
+            )
+
+        geometry = CIPHERGeometry(
+            voxel_phase=voxel_phase,
+            phase_material=phase_material,
+            material_names=list(materials.keys()),
+            interfaces=interfaces,
+            size=size,
+        )
+        inp = cls(
+            geometry=geometry,
+            materials=materials,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+        )
+        return inp
 
     def get_header(self):
         out = {
