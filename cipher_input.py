@@ -91,7 +91,10 @@ class InterfaceDefinition:
             raise ValueError("Specify either `type_fraction` or `phase_pairs`.")
 
         if self.phase_pairs is not None:
-            self.phase_pairs = np.asarray(self.phase_pairs)
+            if len(self.phase_pairs) == 0:
+                self.phase_pairs = np.array([]).reshape((0, 2))
+            else:
+                self.phase_pairs = np.asarray(self.phase_pairs)
 
             if self.phase_pairs.shape[1] != 2:
                 raise ValueError(
