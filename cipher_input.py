@@ -438,24 +438,22 @@ class CIPHERGeometry:
                     )
 
                 # assign phase_pairs according to type fractions:
-                num_pairs = all_phase_pairs.shape[1]
+                num_pairs = all_phase_pairs.shape[0]
                 type_nums_each = [round(i * num_pairs) for i in type_fracs]
                 type_nums = np.cumsum(type_nums_each)
                 if num_pairs % 2 == 1:
                     type_nums += 1
 
                 shuffle_idx = np.random.choice(num_pairs, size=num_pairs, replace=False)
-                phase_pairs_shuffled = all_phase_pairs[:, shuffle_idx]
-                phase_pairs_split = np.split(phase_pairs_shuffled, type_nums, axis=1)[
+                phase_pairs_shuffled = all_phase_pairs[shuffle_idx]
+                phase_pairs_split = np.split(phase_pairs_shuffled, type_nums, axis=0)[
                     :-1
                 ]
-
                 for idx, int_i in enumerate(int_defs):
                     phase_pairs_i = phase_pairs_split[idx]
-                    int_map[phase_pairs_i[0], phase_pairs_i[1]] = int_i.index
-
+                    int_map[phase_pairs_i[:, 0], phase_pairs_i[:, 1]] = int_i.index
                     if not upper_tri_only:
-                        int_map[phase_pairs_i[1], phase_pairs_i[0]] = int_i.index
+                        int_map[phase_pairs_i[:, 1], phase_pairs_i[:, 0]] = int_i.index
 
         print("done!")
 
