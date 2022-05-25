@@ -67,7 +67,7 @@ class InterfaceDefinition:
         materials
     phase_pairs :
         List of phase pair indices that should have this interface type (for manual
-        specification)
+        specification). Can be specified as an (N, 2) array.
     """
 
     materials: Union[List[str], Tuple[str]]
@@ -89,6 +89,15 @@ class InterfaceDefinition:
 
         if self.type_fraction is not None and self.phase_pairs is not None:
             raise ValueError("Specify either `type_fraction` or `phase_pairs`.")
+
+        if self.phase_pairs is not None:
+            self.phase_pairs = np.asarray(self.phase_pairs)
+
+            if self.phase_pairs.shape[1] != 2:
+                raise ValueError(
+                    f"phase_pairs should be specified as an (N, 2) array or a list of "
+                    f"two-element lists, but has shape: {self.phase_pairs.shape}."
+                )
 
 
 class CIPHERGeometry:
@@ -357,7 +366,7 @@ class CIPHERGeometry:
                         f"for all defined interfaces. You cannot mix them."
                     )
 
-            all_phase_pairs = self.get_interface_map_indices(*mat_pair)
+            all_phase_pairs = self.get_interface_map_indices(*mat_pair).T
             if any_manual_set:
                 if not all_manual_set:
                     raise ValueError(
@@ -370,11 +379,13 @@ class CIPHERGeometry:
 
                 # check that given phase_pairs combine to the set of all phase_pairs
                 # for this material-material pair:
-                all_given_phase_pairs = np.hstack([i.phase_pairs for i in int_defs])
+                all_given_phase_pairs = np.vstack(
+                    [i.phase_pairs for i in int_defs if i.phase_pairs.size]
+                )
 
                 # sort by first-phase, then second-phase, for comparison:
-                srt = np.lexsort(all_given_phase_pairs[::-1])
-                all_given_phase_pairs = all_given_phase_pairs[:, srt]
+                srt = np.lexsort(all_given_phase_pairs.T[::-1])
+                all_given_phase_pairs = all_given_phase_pairs[srt]
 
                 if all_given_phase_pairs.shape != all_phase_pairs.shape or not np.all(
                     all_given_phase_pairs == all_phase_pairs
@@ -386,11 +397,12 @@ class CIPHERGeometry:
                     )
 
                 for int_i in int_defs:
-                    phase_pairs_i = int_i.phase_pairs
-                    int_map[phase_pairs_i[0], phase_pairs_i[1]] = int_i.index
+                    phase_pairs_i = int_i.phase_pairs.T
+                    if phase_pairs_i.size:
+                        int_map[phase_pairs_i[0], phase_pairs_i[1]] = int_i.index
 
-                    if not upper_tri_only:
-                        int_map[phase_pairs_i[1], phase_pairs_i[0]] = int_i.index
+                        if not upper_tri_only:
+                            int_map[phase_pairs_i[1], phase_pairs_i[0]] = int_i.index
 
             else:
                 # set default type fractions if missing
