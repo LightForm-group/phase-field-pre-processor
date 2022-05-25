@@ -6,6 +6,7 @@ from random import random
 from typing import Optional, List, Union, Tuple, Dict
 
 import numpy as np
+import pyvista as pv
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
@@ -150,6 +151,13 @@ class CIPHERGeometry:
     @property
     def grid_size(self):
         return np.array(self.voxel_map.grid_size)
+
+    @property
+    def grid_size_3D(self):
+        if self.dimension == 2:
+            return np.hstack([self.grid_size, 1])
+        else:
+            return self.grid_size
 
     @property
     def neighbour_voxels(self):
@@ -452,6 +460,36 @@ class CIPHERGeometry:
         print("done!")
 
         return int_map
+
+    def get_pyvista_grid_spacing(self):
+        spacing = self.size / self.grid_size
+        if self.dimension == 3:
+            return spacing
+        else:
+            return np.hstack([spacing, spacing[0]])
+
+    def get_pyvista_grid(self):
+        """Experimental!"""
+
+        grid = pv.UniformGrid()
+
+        grid.dimensions = self.grid_size_3D + 1  # +1 to inject values on cell data
+        grid.spacing = self.get_pyvista_grid_spacing()
+        return grid
+
+    def show(self):
+        """Experimental!"""
+
+        print("WARNING: experimental!")
+
+        grid = self.get_pyvista_grid()
+        grid.cell_data["phase"] = self.voxel_phase.flatten(order="F")
+        grid.cell_data["material"] = self.voxel_material.flatten(order="F")
+        grid.cell_data["interface_idx"] = self.get_interface_idx().flatten(order="F")
+
+        pl = pv.PlotterITK()
+        pl.add_mesh(grid)
+        pl.show(ui_collapsed=False)
 
 
 @dataclass

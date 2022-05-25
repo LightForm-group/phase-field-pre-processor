@@ -5,3 +5,5 @@ scipy
 jupyter
 matplotlib
 vecmaths
+pyvista
+itkwidgets>=0.25.2
