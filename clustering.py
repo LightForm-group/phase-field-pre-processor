@@ -6,8 +6,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from itertools import combinations_with_replacement, combinations
 from logging import getLogger, basicConfig
+from typing import Dict, List
 
 import numpy as np
+from scipy.stats import mode
 from matflow import load_workflow
 from numpy.lib.shape_base import split
 import plotly
@@ -16,6 +18,7 @@ from scipy.ndimage import zoom
 from plotly import graph_objects
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
+from cipher_input import CIPHERInput, InterfaceDefinition
 
 from utilities import (
     get_coordinate_grid,
@@ -191,99 +194,6 @@ def remap_periodic_boundary_IDs(im, IDs_A, IDs_B):
             im[im == old_ID] = grain_ID_replace_new[replace_idx]
 
     return im
-
-
-def get_interface_map(x, split_interface=None):
-    """Get a symmetric 2D interface map between unique combinations of integers
-    in `x`.
-
-    Parameters
-    ----------
-    x : ndarray of shape (N,)
-    split_interface : ndarray of shape (N, N) of bool
-        If given, assume two types of same-phase interface exist (e.g. low-angle vs
-        high-angle grain boundary). The interface indices that correspond to the second
-        of these types are given as `True` values in this array.
-
-    Returns
-    -------
-    interfaces : ndarray of shape (M, 2)
-    interface_map : ndarray of shape (N, N)
-
-    """
-
-    uniq_x = np.unique(x)
-
-    num_uniq = len(uniq_x)
-    num_interfaces = int(num_uniq * (num_uniq + 1) / 2)  # triangle number
-
-    interfaces = np.empty((num_interfaces, 2), dtype=int)
-    for pair_idx, pair in enumerate(combinations_with_replacement(uniq_x, r=2)):
-        interfaces[pair_idx] = pair
-
-    lookup = np.zeros((num_uniq, num_uniq), dtype=int)
-    lookup_range = np.arange(num_interfaces)
-
-    lookup[np.triu_indices(lookup.shape[0])] = lookup_range
-    lookup = lookup + lookup.T - np.diag(np.diag(lookup))
-
-    x_tile = np.tile(x, (len(x), 1))
-    row_idx = x_tile.flatten()
-    col_idx = x_tile.T.flatten()
-
-    if split_interface is not None:
-
-        lookup_split = np.ones((num_uniq * 2, num_uniq * 2), dtype=int) * -1
-        lookup_split[:num_uniq, :num_uniq] = lookup
-        lookup_split[
-            np.arange(num_uniq, 2 * num_uniq),
-            np.arange(num_uniq, 2 * num_uniq),
-        ] = np.arange(num_interfaces, num_interfaces + num_uniq)
-
-        split_interface_flat = split_interface.flatten()
-        row_idx[split_interface_flat == 1] += num_uniq
-        col_idx[split_interface_flat == 1] += num_uniq
-
-        lookup = lookup_split
-
-        interfaces = np.vstack((interfaces, np.tile(np.arange(num_uniq), (2, 1)).T))
-
-    interface_map = lookup[row_idx, col_idx].reshape(x_tile.shape)
-
-    return (
-        interfaces,
-        interface_map,
-    )
-
-
-def compress_1D_array(arr):
-
-    vals = []
-    nums = []
-    for idx, i in enumerate(arr):
-
-        if idx == 0:
-            vals.append(i)
-            nums.append(1)
-            continue
-
-        if i == vals[-1]:
-            nums[-1] += 1
-        else:
-            vals.append(i)
-            nums.append(1)
-
-    assert sum(nums) == arr.size
-
-    return nums, vals
-
-
-def get_compressed_1D_array_string(arr, item_delim="\n"):
-    out = []
-    for n, v in zip(*compress_1D_array(arr)):
-        out.append(f"{n} of {v}" if n > 1 else f"{v}")
-
-    return item_delim.join(out)
 
 
 def partition_sub_grain_seeds_into_grains(sub_grain_seeds, grain_IDs):
@@ -1029,118 +939,201 @@ class Clusterer:
         self.seg_dir.mkdir(exist_ok=True)
         return self.seg_dir
 
-    def write_CIPHER_input_data(self, path, materials, interfaces, solution_parameters):
+    def get_cipher_input(
+        self,
+        materials: Dict,
+        interface_properties: Dict,
+        components: List,
+        outputs: List,
+        solution_parameters: Dict,
+        grid_size_power_of_two: int = 8,
+        intra_material_interface_segmented_label: str = "segmented",
+        intra_material_interface_tessellated_label: str = "tessellated",
+        interface_scale: int = 4,
+    ):
 
         if self.seed_points is None:
             raise ValueError("Seed points not set yet; run `set_seed_points` first!")
 
-        phase_map = self.get_field_data("phase")
-
-        # Scale to a power of 2:
-        scaled_grid_size = 2**8
-        zoom_factor = scaled_grid_size / self.slice_grid_size[0]
-        scaled_sub_grain_IDs = zoom(
-            self.tessellated_sub_grain_IDs, zoom_factor, order=0
-        )
-        scaled_phase_map = zoom(phase_map, zoom_factor, order=0)
-        scaled_pixel_length = self.seed_points_args["pixel_length"] / zoom_factor
-
-        cipher_grid_size = [int(i * zoom_factor) for i in self.slice_grid_size]
-        cipher_size = [i * scaled_pixel_length for i in cipher_grid_size]
-
-        cipher_voxel_phase_mapping = np.reshape(scaled_sub_grain_IDs, -1, order="F")
-        phase_map_flat = np.reshape(scaled_phase_map, -1, order="F")
-
-        unq, ind = np.unique(cipher_voxel_phase_mapping, return_index=True)
-        num_cipher_phases = len(unq)
-        cipher_phase_material_mapping = phase_map_flat[ind]
-
-        cipher_materials = np.array(
-            self.element.outputs.volume_element_response["field_data"]["phase"]["meta"][
-                "phase_names"
-            ]
+        cipher_maps = self.get_cipher_maps(
+            grid_size_power_of_two=grid_size_power_of_two,
+            intra_material_interface_segmented_label=intra_material_interface_segmented_label,
+            intra_material_interface_tessellated_label=intra_material_interface_tessellated_label,
         )
 
-        (cipher_interfaces_mat_idx, cipher_interface_mapping) = get_interface_map(
-            cipher_phase_material_mapping,
-            split_interface=self.is_interface_low_angle_GB,
-        )
-
-        split_interfaces = ["HAGB", "LAGB"]
-
-        cipher_interfaces = []
-        seen_interface_idx = []
-        for interface in cipher_materials[cipher_interfaces_mat_idx]:
-            split_interface_str = ""
-            if interface[0] == interface[1]:
-                if interface.tolist() not in seen_interface_idx:
-                    split_interface_str = "-" + split_interfaces[0]
-                    seen_interface_idx.append(interface.tolist())
-                else:
-                    split_interface_str = "-" + split_interfaces[1]
-
-            cipher_interfaces.append("-".join(interface) + f"{split_interface_str}")
-
-        maxnrefine = 10
-        max_grid_size = 2**maxnrefine
-
-        interface_scale = 4  # 4 to 8
-        interfacewidth = interface_scale * max(cipher_size) / max_grid_size
-
-        if set(materials.keys()) != set(cipher_materials):
+        if set(materials.keys()) != set(cipher_maps["materials"]):
             raise ValueError(
-                f"`materials` must be a dict with keys: {cipher_materials!r}"
+                f"The following materials must have properties assigned to them in the "
+                f"`materials` dict: {cipher_maps['materials']}."
             )
 
-        if set(interfaces.keys()) != set(cipher_interfaces):
-            raise ValueError(
-                f"`interfaces` must be a dict with keys: {cipher_interfaces!r}"
+        all_interfaces = []
+        for interface in cipher_maps["interfaces"]:
+            mats = interface["materials"]
+            type_label = interface.get("type_label")
+            int_name = InterfaceDefinition.get_name(mats, type_label)
+            if int_name not in interface_properties:
+                raise ValueError(
+                    f"Missing interface properties for interface name {int_name}."
+                )
+            all_interfaces.append(
+                InterfaceDefinition(
+                    materials=mats,
+                    type_label=type_label,
+                    phase_pairs=interface.get("phase_pairs"),
+                    properties=interface_properties[int_name],
+                )
             )
+
+        # materials dict is now ordered the same as the DAMASK phases
+        materials = {k: materials.get(k) for k in cipher_maps["materials"]}
 
         sln_params = copy.deepcopy(solution_parameters)
+        maxnrefine = sln_params.get("maxnrefine", 10)
+        max_grid_size = 2**maxnrefine
+        interfacewidth = interface_scale * max(cipher_maps["size"]) / max_grid_size
+
         if sln_params.get("interfacewidth") is None:
             sln_params["interfacewidth"] = interfacewidth
         if sln_params.get("maxnrefine") is None:
             sln_params["maxnrefine"] = maxnrefine
 
-        cipher_input_data = {
-            "header": {
-                "grid": cipher_grid_size,
-                "size": cipher_size,
-                "n_phases": num_cipher_phases,
-                "materials": [str(k) for k in cipher_materials],
-                "interfaces": [str(k) for k in cipher_interfaces],
-                "components": ["ti"],
-                "outputs": [
-                    "phaseid",
-                    "matid",  # alpha and beta phase
-                    "interfaceid",  # zeros in bulk, colour-coded at interfaces
-                ],
-            },
-            "solution_parameters": dict(sorted(sln_params.items())),
-            "material": materials,
-            "interface": interfaces,
-            "mappings": {
-                "phase_material_mapping": LiteralScalarString(
-                    get_compressed_1D_array_string(cipher_phase_material_mapping + 1)
-                    + "\n"
-                ),
-                "voxel_phase_mapping": LiteralScalarString(
-                    get_compressed_1D_array_string(cipher_voxel_phase_mapping + 1)
-                    + "\n"
-                ),
-                "interface_mapping": LiteralScalarString(
-                    get_compressed_1D_array_string(
-                        cipher_interface_mapping.flatten(order="C") + 1
-                    )
-                    + "\n"
-                ),
-            },
-        }
+        inp = CIPHERInput.from_voxel_phase_map(
+            voxel_phase=cipher_maps["voxel_phase"],
+            phase_material=cipher_maps["phase_material"],
+            materials=materials,
+            interfaces=all_interfaces,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+            size=cipher_maps["size"],
+        )
+        return inp
 
-        yaml = YAML()
-        with Path(path).open("w") as fp:
-            yaml.dump(cipher_input_data, fp)
+    def get_cipher_phase_material_map(self, cipher_voxel_phase, damask_phase):
+        """Get the most-frequent DAMASK phase (i.e. CIPHER material) associated with the
+        voxels of each CIPHER phase."""
+
+        cipher_voxel_phase_flat = cipher_voxel_phase.reshape(-1)
+        damask_phase_flat = damask_phase.reshape(-1)
+        damask_phase_mode = []
+        for phase_ID in np.unique(cipher_voxel_phase_flat):
+            phase_ID_pos = np.where(cipher_voxel_phase_flat == phase_ID)[0]
+            damask_phase = damask_phase_flat[phase_ID_pos]
+
+            damask_phase_mode_i = mode(damask_phase)[0][0]
+            damask_phase_mode.append(damask_phase_mode_i)
+
+        cipher_phase_material = np.array(damask_phase_mode)
+        return cipher_phase_material
+
+    def get_cipher_voxel_phase_map(self, grid_size_power_of_two=8):
+
+        # Scale to a power of 2:
+        scaled_grid_size = 2**grid_size_power_of_two
+        zoom_factor = scaled_grid_size / self.slice_grid_size[0]
+        cipher_voxel_phase = zoom(self.tessellated_sub_grain_IDs, zoom_factor, order=0)
+        damask_phase = zoom(self.get_field_data("phase"), zoom_factor, order=0)
+
+        scaled_pixel_length = self.seed_points_args["pixel_length"] / zoom_factor
+        cipher_grid_size = [int(i * zoom_factor) for i in self.slice_grid_size]
+        cipher_size = [i * scaled_pixel_length for i in cipher_grid_size]
+
+        return cipher_voxel_phase, damask_phase, cipher_size
+
+    def get_cipher_intra_material_phase_pairs(self, phase_material):
+
+        num_materials = np.unique(phase_material).size
+        intra_material_phases = []
+        for i in range(num_materials):
+            intra_material_phases.append([])
+            like_mat_idx = np.where(phase_material == i)[0]
+            for phase_1_idx, phase_2_idx in combinations(like_mat_idx, r=2):
+                intra_material_phases[-1].append((phase_1_idx, phase_2_idx))
+
+        intra_material_phases = [set(i) for i in intra_material_phases]
+
+        # interfaces produced by Voronoi tessellation after segmentation, for each material:
+        tessellated_interfaces = [[] for _ in range(num_materials)]
+        for sub_grains in self.sub_grain_seeds_idx:
+            material_idx = phase_material[sub_grains[0]]
+            assert len(set(phase_material[sub_grains])) == 1
+            for phase_1_idx, phase_2_idx in combinations(sub_grains, r=2):
+                tessellated_interfaces[material_idx].append((phase_1_idx, phase_2_idx))
+
+        tessellated_interfaces = [set(i) for i in tessellated_interfaces]
+
+        # interfaces produced by segmentation, for each material:
+        segmented_interfaces = [
+            i - j for i, j in zip(intra_material_phases, tessellated_interfaces)
+        ]
+        out = {
+            "tessellated_phase_pairs": tessellated_interfaces,
+            "segmented_phase_pairs": segmented_interfaces,
+        }
+        return out
+
+    def get_cipher_maps(
+        self,
+        grid_size_power_of_two=8,
+        intra_material_interface_segmented_label="segmented",
+        intra_material_interface_tessellated_label="tessellated",
+    ):
+
+        voxel_phase_mapping, damask_phase, size = self.get_cipher_voxel_phase_map(
+            grid_size_power_of_two,
+        )
+        phase_material_mapping = self.get_cipher_phase_material_map(
+            cipher_voxel_phase=voxel_phase_mapping,
+            damask_phase=damask_phase,
+        )
+
+        intra_mat_phase_pairs = self.get_cipher_intra_material_phase_pairs(
+            phase_material_mapping
+        )
+        tessellated_phase_pairs = intra_mat_phase_pairs["tessellated_phase_pairs"]
+        segmented_phase_pairs = intra_mat_phase_pairs["segmented_phase_pairs"]
+
+        # cipher materials are equivalent to DAMASK phases:
+        cipher_materials = list(
+            self.element.outputs.volume_element_response["field_data"]["phase"]["meta"][
+                "phase_names"
+            ]
+        )
+
+        # interfaces for distinct material pairs:
+        interfaces = [
+            {"materials": (i[0], i[1])} for i in combinations(cipher_materials, r=2)
+        ]
+
+        # interfaces for same material pairs:
+        for idx, (tess, segd) in enumerate(
+            zip(tessellated_phase_pairs, segmented_phase_pairs)
+        ):
+            mat_name = cipher_materials[idx]
+            interfaces.append(
+                {
+                    "materials": (mat_name, mat_name),
+                    "type_label": intra_material_interface_tessellated_label,
+                    "phase_pairs": np.array(list(tess)),
+                }
+            )
+            interfaces.append(
+                {
+                    "materials": (mat_name, mat_name),
+                    "type_label": intra_material_interface_segmented_label,
+                    "phase_pairs": np.array(list(segd)),
+                }
+            )
+
+        out = {
+            "voxel_phase": voxel_phase_mapping,
+            "phase_material": phase_material_mapping,
+            "size": size,
+            "materials": cipher_materials,
+            "interfaces": interfaces,
+        }
+        return out
 
 
 class MTEX_FMC_Clusterer(Clusterer):
