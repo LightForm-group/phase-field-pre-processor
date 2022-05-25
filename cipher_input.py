@@ -77,9 +77,15 @@ class InterfaceDefinition:
     type_fraction: Optional[float] = None
     phase_pairs: Optional[np.ndarray] = None
 
+    @staticmethod
+    def get_name(materials, type_label):
+        return (
+            f"{materials[0]}-{materials[1]}" f"{f'-{type_label}' if type_label else ''}"
+        )
+
     def __post_init__(self):
         if self.name is None:
-            self.name = f"{self.materials[0]}-{self.materials[1]}{f'-{self.type_label}' if self.type_label else ''}"
+            self.name = self.get_name(self.materials, self.type_label)
 
         if self.type_fraction is not None and self.phase_pairs is not None:
             raise ValueError("Specify either `type_fraction` or `phase_pairs`.")
