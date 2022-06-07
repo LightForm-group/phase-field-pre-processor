@@ -279,7 +279,7 @@ class PhaseFieldModelPreProcessor:
     """Class to perform steps that prepare a phase field model geometry from a crystal-plasticity-deformed RVE."""
 
     def __init__(self, workflow_dir, segmentation_sub_dir="segmentation"):
-        self.workflow_dir = Path(workflow_dir)
+        self.workflow_dir = Path(workflow_dir).resolve()
         self.segmentation_sub_dir = self.workflow_dir.joinpath(segmentation_sub_dir)
         self.segmentation_sub_dir.mkdir(exist_ok=True)
 
