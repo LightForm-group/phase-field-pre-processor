@@ -7,6 +7,7 @@ from typing import Optional, List, Union, Tuple, Dict
 
 import numpy as np
 import pyvista as pv
+import h5py
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
@@ -648,6 +649,105 @@ class CIPHERInput:
             solution_parameters=solution_parameters,
         )
         return inp
+
+    @classmethod
+    def from_dream3D(
+        cls,
+        path,
+        materials,
+        interfaces,
+        components,
+        outputs,
+        solution_parameters,
+        container_labels=None,
+    ):
+
+        default_container_labels = {
+            "SyntheticVolumeDataContainer": "SyntheticVolumeDataContainer",
+            "CellData": "CellData",
+            "CellEnsembleData": "CellEnsembleData",
+            "FeatureIds": "FeatureIds",
+            "Grain Data": "Grain Data",
+            "Phases": "Phases",
+            "NumFeatures": "NumFeatures",
+            "BoundaryCells": "BoundaryCells",
+            "NumNeighbors": "NumNeighbors",
+            "NeighborList": "NeighborList",
+            "SharedSurfaceAreaList": "SharedSurfaceAreaList",
+            "SurfaceFeatures": "SurfaceFeatures",
+        }
+        container_labels = container_labels or {}
+        container_labels = {**default_container_labels, **container_labels}
+
+        with h5py.File(path, "r") as fp:
+
+            voxel_phase_path = "/".join(
+                (
+                    "DataContainers",
+                    container_labels["SyntheticVolumeDataContainer"],
+                    container_labels["CellData"],
+                    container_labels["FeatureIds"],
+                )
+            )
+            phase_material_path = "/".join(
+                (
+                    "DataContainers",
+                    container_labels["SyntheticVolumeDataContainer"],
+                    container_labels["Grain Data"],
+                    container_labels["Phases"],
+                )
+            )
+            spacing_path = "/".join(
+                (
+                    "DataContainers",
+                    container_labels["SyntheticVolumeDataContainer"],
+                    "_SIMPL_GEOMETRY",
+                    "SPACING",
+                )
+            )
+            dims_path = "/".join(
+                (
+                    "DataContainers",
+                    container_labels["SyntheticVolumeDataContainer"],
+                    "_SIMPL_GEOMETRY",
+                    "DIMENSIONS",
+                )
+            )
+            material_names_path = "/".join(
+                (
+                    "DataContainers",
+                    container_labels["SyntheticVolumeDataContainer"],
+                    container_labels["CellEnsembleData"],
+                    "PhaseName",
+                )
+            )
+
+            voxel_phase = fp[voxel_phase_path][()].squeeze()
+            phase_material = fp[phase_material_path][()].flatten()
+            voxel_phase = np.transpose(voxel_phase, axes=[2, 1, 0])
+            spacing = fp[spacing_path][()]  # same as "resolution" in GUI
+            dimensions = fp[dims_path][()]
+            size = np.array([i * j for i, j in zip(spacing, dimensions)])
+            mat_names = [i.decode("utf-8") for i in fp[material_names_path]][
+                1:
+            ]  # ignore unknown phase
+
+        if set(mat_names) != set(materials.keys()):
+            raise ValueError(
+                f"Material definitions must be provided for the following materials "
+                f"(known as phases in Dream3D): {mat_names}"
+            )
+
+        return cls.from_voxel_phase_map(
+            voxel_phase=voxel_phase,
+            size=size,
+            materials=materials,
+            phase_material=phase_material,
+            interfaces=interfaces,
+            components=components,
+            outputs=outputs,
+            solution_parameters=solution_parameters,
+        )
 
     def get_header(self):
         out = {
