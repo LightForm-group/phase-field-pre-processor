@@ -42,7 +42,7 @@ function [grainIDs] = segment_slice_new(argsJSONPath)
     grains_smooth = smooth(grains, allArgs.smoothing);
 
     ebsdsq = gridify(ebsd);
-    grainIDs = zeros(size(ebsdsq), 'int8');
+    grainIDs = zeros(size(ebsdsq), 'int32');
 
     for xIdx = 1:size(ebsdsq.x, 1)
 
@@ -61,6 +61,12 @@ function [grainIDs] = segment_slice_new(argsJSONPath)
     end
 
     save('grainIDs.mat', 'grainIDs');
+
+    figure();
+    h = heatmap(grainIDs);
+    h.GridVisible = "off";
+    colormap default
+    exportgraphics(gcf, 'grainIDs.png');
 
     colours = cell(length(phaseNames));
 

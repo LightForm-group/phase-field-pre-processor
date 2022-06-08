@@ -197,6 +197,10 @@ def remap_periodic_boundary_IDs(im, IDs_A, IDs_B):
 
 
 def partition_sub_grain_seeds_into_grains(sub_grain_seeds, grain_IDs):
+    """Assign given seed points to the correct grain IDs.
+
+    If a given grain ID does not happen to have any seed points within in, a new single
+    seed point will be added."""
 
     sub_grain_seeds_idx = []
     extra_seeds = []
@@ -208,7 +212,7 @@ def partition_sub_grain_seeds_into_grains(sub_grain_seeds, grain_IDs):
 
         sub_grain_seeds_idx_i = []
 
-        coords_i = np.array(np.where(grain_IDs == grain_ID_i))
+        coords_i = np.array(np.where(grain_IDs == grain_ID_i))[::-1]
         grain_coords.append(coords_i)
 
         # Get only seeds within this grain:
@@ -231,7 +235,7 @@ def partition_sub_grain_seeds_into_grains(sub_grain_seeds, grain_IDs):
         sub_grain_seeds = np.vstack((sub_grain_seeds, extra_seeds))
         is_dummy_seed = np.hstack((is_dummy_seed, np.ones(len(extra_seeds), dtype=int)))
 
-    # Reorder seeds and add on extra seeds:
+    # Reorder seeds:
     new_is_dummy_seed = []
     for sub_grain_seeds_idx_i in sub_grain_seeds_idx:
         seeds_i = sub_grain_seeds[sub_grain_seeds_idx_i]
@@ -272,7 +276,7 @@ def tessellate_sub_grain_seeds(
             tess_sub_grain_IDs
         ]
 
-    return sub_grain_IDs
+    return sub_grain_IDs.T
 
 
 class PhaseFieldModelPreProcessor:
@@ -861,8 +865,8 @@ class Clusterer:
                 },
                 {
                     "type": "scatter",
-                    "x": self.seed_points[~np.array(self.is_dummy_seed), 1],
-                    "y": self.seed_points[~np.array(self.is_dummy_seed), 0],
+                    "x": self.seed_points[~np.array(self.is_dummy_seed), 0],
+                    "y": self.seed_points[~np.array(self.is_dummy_seed), 1],
                     "text": np.arange(self.seed_points.shape[0]),
                     "name": "sub grain seed points",
                     "mode": "markers",
@@ -875,8 +879,8 @@ class Clusterer:
                 },
                 {
                     "type": "scatter",
-                    "x": self.seed_points[np.array(self.is_dummy_seed), 1],
-                    "y": self.seed_points[np.array(self.is_dummy_seed), 0],
+                    "x": self.seed_points[np.array(self.is_dummy_seed), 0],
+                    "y": self.seed_points[np.array(self.is_dummy_seed), 1],
                     "text": np.arange(self.seed_points.shape[0]),
                     "name": "sub grain seed points (dummy)",
                     "mode": "markers",
