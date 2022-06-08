@@ -156,9 +156,16 @@ class CIPHERGeometry:
     @property
     def grid_size_3D(self):
         if self.dimension == 2:
-            return np.hstack([self.grid_size, 1])
+            return np.hstack([self.grid_size[::-1], 1])
         else:
             return self.grid_size
+
+    @property
+    def size_3D(self):
+        if self.dimension == 2:
+            return np.hstack([self.size[::-1], self.size[0] / self.grid_size[0]])
+        else:
+            return self.size
 
     @property
     def neighbour_voxels(self):
@@ -460,21 +467,36 @@ class CIPHERGeometry:
 
         return int_map
 
-    def get_pyvista_grid_spacing(self):
-        spacing = self.size / self.grid_size
-        if self.dimension == 3:
-            return spacing
-        else:
-            return np.hstack([spacing, spacing[0]])
-
     def get_pyvista_grid(self):
         """Experimental!"""
 
         grid = pv.UniformGrid()
 
         grid.dimensions = self.grid_size_3D + 1  # +1 to inject values on cell data
-        grid.spacing = self.get_pyvista_grid_spacing()
+        grid.spacing = self.size_3D / self.grid_size_3D
         return grid
+
+    @property
+    def voxel_phase_3D(self):
+        if self.dimension == 3:
+            return self.voxel_phase
+        else:
+            return self.voxel_phase.T[:, :, None]
+
+    @property
+    def voxel_material_3D(self):
+        if self.dimension == 3:
+            return self.voxel_material
+        else:
+            return self.voxel_material.T[:, :, None]
+
+    @property
+    def voxel_interface_idx_3D(self):
+        int_idx = self.get_interface_idx()
+        if self.dimension == 3:
+            return int_idx
+        else:
+            return int_idx.T[:, :, None]
 
     def show(self):
         """Experimental!"""
@@ -482,9 +504,10 @@ class CIPHERGeometry:
         print("WARNING: experimental!")
 
         grid = self.get_pyvista_grid()
-        grid.cell_data["phase"] = self.voxel_phase.flatten(order="F")
-        grid.cell_data["material"] = self.voxel_material.flatten(order="F")
-        grid.cell_data["interface_idx"] = self.get_interface_idx().flatten(order="F")
+
+        grid.cell_data["interface_idx"] = self.voxel_interface_idx_3D.flatten(order="F")
+        grid.cell_data["material"] = self.voxel_material_3D.flatten(order="F")
+        grid.cell_data["phase"] = self.voxel_phase_3D.flatten(order="F")
 
         pl = pv.PlotterITK()
         pl.add_mesh(grid)
@@ -749,6 +772,10 @@ class CIPHERInput:
             solution_parameters=solution_parameters,
         )
 
+    @property
+    def interface(self):
+        return self.geometry.interfaces
+
     def get_header(self):
         out = {
             "grid": self.geometry.grid_size.tolist(),
@@ -794,3 +821,17 @@ class CIPHERInput:
             yaml.dump(cipher_input_data, fp)
 
         return path
+
+    def apply_interface_map(name, matrix=None, phase_pairs=None):
+        """Apply a given interface property from a phase-pair matrix (or dict) of values.
+
+        Parameters
+        ----------
+        name : list or tuple of str
+            Name of interface property to apply. E.g. `("energy", "e0")`
+        phase_pairs : dict of (tuple(int, int): Any), optional
+            Values of interface property to assign for specific phase pairs.
+        matrix : symmetric array of shape (num_phases, num_phases), optional
+            Value of interface property to assign for each phase pair.
+
+        """
