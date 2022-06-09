@@ -745,7 +745,7 @@ class CIPHERInput:
                 )
             )
 
-            voxel_phase = fp[voxel_phase_path][()].squeeze()
+            voxel_phase = fp[voxel_phase_path][()][:, :, :, 0]
             phase_material = fp[phase_material_path][()].flatten()
             voxel_phase = np.transpose(voxel_phase, axes=[2, 1, 0])
             spacing = fp[spacing_path][()]  # same as "resolution" in GUI
