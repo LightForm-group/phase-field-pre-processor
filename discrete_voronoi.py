@@ -177,7 +177,7 @@ class DiscreteVoronoi(VoxelMap):
         # Get coordinates of grid element centres:
         coords, _ = get_coordinate_grid(size, grid_size)
         coords_flat = coords.reshape(-1, dimension)
-        tree = KDTree(self.seeds_grid, boxsize=size if is_periodic else None)
+        tree = KDTree(self.seeds, boxsize=size if is_periodic else None)
         region_ID = tree.query(coords_flat)[1].reshape(coords.shape[:-1])
 
         print("done!")
