@@ -396,7 +396,9 @@ class Clusterer:
 
     @property
     def grid_size(self):
-        grid_size = self.element.get_parameter_dependency_value("grid_size")
+        grid_size = self.element.get_parameter_dependency_value("volume_element")[
+            "grid_size"
+        ]
         # could have multiple grid size outputs (?):
         if isinstance(grid_size, list) and not isinstance(grid_size[0], int):
             grid_size = [i for i in grid_size if isinstance(i, list)][-1]
