@@ -1436,7 +1436,9 @@ class CIPHERInput:
             N_phases it the total number of phases in the geometry.
         bin_edges : ndarray of float, optional
             If specified, bin property values such that multiple phase-pairs are
-            represented by the same interface definition. This uses `np.digitize`.
+            represented by the same interface definition. This uses `np.digitize`. The
+            values used for each bin will be the mid-points between bin edges, where a
+            given mid-point is larger than its associated edge.
 
         """
 
@@ -1451,14 +1453,18 @@ class CIPHERInput:
                 pp_idx_i = np.where(bin_idx == idx + 1)[0]
                 all_pp_idx_i.extend(pp_idx_i.tolist())
                 if pp_idx_i.size:
+                    if idx < len(bin_edges) - 1:
+                        value = (bin_i + bin_edges[idx + 1]) / 2
+                    else:
+                        value = bin_i
                     print(
                         f"Adding {pp_idx_i.size!r} phase pair(s) to {property_name!r} bin "
-                        f"{idx + 1} with edge value: {bin_i!r}"
+                        f"{idx + 1} with edge value: {bin_i!r} and centre: {value!r}."
                     )
                     new_interfaces_data.append(
                         {
                             "phase_pairs": phase_pairs.T[pp_idx_i],
-                            "value": bin_i,
+                            "value": value,
                         }
                     )
 
