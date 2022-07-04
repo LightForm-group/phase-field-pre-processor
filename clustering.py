@@ -487,7 +487,7 @@ class Clusterer:
             coords = tile_coordinates(coords)
 
         coords_flat = coords.reshape(-1, 2)
-        phase_flat = phase_slice.reshape(-1)
+        phase_flat = phase_slice.reshape(-1) + 1  # index from 1
         ori_flat = ori_slice.reshape(-1, 4)
 
         out = {
