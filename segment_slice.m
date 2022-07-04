@@ -116,11 +116,17 @@ function [grainIDs] = segment_slice(argsJSONPath)
 
     for phaseIdx = 1:length(phaseNames)
         phaseName = phaseNames{phaseIdx};
-        ipfKey = ipfColorKey(ebsd(phaseName));
-        ipfKeys{phaseIdx} = ipfKey;
-        mean_ori_colors = ipfKey.orientation2color(grains(phaseName).meanOrientation);
-        plot(grains_smooth(phaseName), mean_ori_colors, 'micronbar');
-        hold on;
+
+        try
+            ipfKey = ipfColorKey(ebsd(phaseName));
+            ipfKeys{phaseIdx} = ipfKey;
+            mean_ori_colors = ipfKey.orientation2color(grains(phaseName).meanOrientation);
+            plot(grains_smooth(phaseName), mean_ori_colors, 'micronbar');
+            hold on;
+        catch
+            warning('Could not generate IPF key for phase %s. Perhaps the phase does not exist in the data.', phaseName);
+        end
+
     end
 
     hold off;
@@ -131,8 +137,12 @@ function [grainIDs] = segment_slice(argsJSONPath)
     for phaseIdx = 1:length(ipfKeys)
         phaseName = phaseNames{phaseIdx};
         figure();
-        plot(ipfKeys{phaseIdx});
-        exportgraphics(gca, sprintf('IPF_key_%s.png', phaseName), 'Resolution', allArgs.fig_resolution);
+
+        if ~isempty(ipfKeys{phaseIdx})
+            plot(ipfKeys{phaseIdx});
+            exportgraphics(gca, sprintf('IPF_key_%s.png', phaseName), 'Resolution', allArgs.fig_resolution);
+        end
+
     end
 
     % Show grain boundary misorientation distribution
