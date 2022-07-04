@@ -346,14 +346,17 @@ class PhaseTypeDefinition:
     ):
         self.type_label = type_label
         self.target_type_fraction = target_type_fraction
-        self.phases = phases
+        self.phases = np.asarray(phases) if phases is not None else phases
         self.orientations = orientations
 
         self._material = None
 
         if self.phases is not None and self.target_type_fraction is not None:
+            raise ValueError("Cannot specify both `phases` and `target_type_fraction`.")
+
+        if orientations is not None and phases is None:
             raise ValueError(
-                f"Cannot specify both `phases` and `target_type_fraction`."
+                "If specifying `orientations`, must also specify `phases`."
             )
 
     @property
