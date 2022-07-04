@@ -236,6 +236,13 @@ class MaterialDefinition:
 
         self.phase_types = phase_types
 
+        if self.target_volume_fraction is not None:
+            if self.phases is not None:
+                raise ValueError(
+                    f"Cannot specify both `target_volume_fraction` and `phases` for "
+                    f"material {self.name!r}."
+                )  # TODO: test raise
+
         is_type_frac = [i.target_type_fraction is not None for i in phase_types]
         if phase_types[0].phases is None:
             num_unassigned_vol = self.num_phase_types - sum(is_type_frac)
