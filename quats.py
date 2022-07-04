@@ -81,6 +81,7 @@ def quat_multiply(q1, q2, P=1):
 def quat_angle_between(q1, q2):
     q2_conj = quat_conjugate(q2)
     diff = quat_multiply(q1, q2_conj)
+    diff[..., 0] = np.clip(diff[..., 0], a_min=-1, a_max=1)
     angle = 2 * np.arccos(diff[..., 0])
     return angle
 
