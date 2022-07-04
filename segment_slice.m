@@ -1,4 +1,4 @@
-function [grainIDs] = segment_slice_new(argsJSONPath)
+function [grainIDs] = segment_slice(argsJSONPath)
 
     close all;
 
