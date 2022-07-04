@@ -1040,10 +1040,10 @@ class Clusterer:
         zoom_factor = scaled_grid_size / self.slice_grid_size[0]
         cipher_voxel_phase = zoom(self.tessellated_sub_grain_IDs, zoom_factor, order=0)
         damask_phase = zoom(self.get_field_data("phase"), zoom_factor, order=0)
-
-        scaled_pixel_length = self.seed_points_args["pixel_length"] / zoom_factor
         cipher_grid_size = [int(i * zoom_factor) for i in self.slice_grid_size]
-        cipher_size = [i * scaled_pixel_length for i in cipher_grid_size]
+        cipher_size = [
+            i * self.seed_points_args["pixel_length"] for i in cipher_grid_size
+        ]
 
         return cipher_voxel_phase, damask_phase, cipher_size
 
