@@ -73,18 +73,6 @@ class InterfaceDefinition:
         specification). Can be specified as an (N, 2) array.
     """
 
-    __slots__ = (
-        "_is_phase_pairs_set",
-        "_phase_pairs",
-        "_metadata",
-        "properties",
-        "materials",
-        "phase_types",
-        "type_label",
-        "type_fraction",
-        "index",
-    )
-
     def __init__(
         self,
         properties: Dict,
