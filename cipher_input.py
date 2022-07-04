@@ -613,8 +613,6 @@ class CIPHERGeometry:
 
         for pt_pair, int_defs in ints_by_phase_type_pair.items():
 
-            # print(f"int_defs: {int_defs}")
-
             names = [i.name for i in int_defs]
             if len(set(names)) < len(names):
                 raise ValueError(
@@ -1357,6 +1355,10 @@ class CIPHERInput:
     def interfaces(self):
         return self.geometry.interfaces
 
+    @property
+    def interface_names(self):
+        return self.geometry.interface_names
+
     def get_header(self):
         out = {
             "grid": self.geometry.grid_size.tolist(),
@@ -1435,14 +1437,9 @@ class CIPHERInput:
 
         """
 
-        base_interface_idx = self.geometry.interface_names.index(base_interface_name)
-        base_interface_defn = self.geometry.interfaces.pop(base_interface_idx)
-        interface_map_tri = np.tril(
-            -np.ones_like(self.geometry.interface_map)
-        ) + np.triu(self.geometry.interface_map)
-        phase_pairs = np.array(np.where(interface_map_tri == base_interface_idx))
-
+        base_defn, phase_pairs = self.geometry.remove_interface(base_interface_name)
         new_vals_all = property_values[phase_pairs[0], phase_pairs[1]]
+
         new_interfaces_data = []
         if bin_edges is not None:
             bin_idx = np.digitize(new_vals_all, bin_edges)
@@ -1495,13 +1492,13 @@ class CIPHERInput:
         print("Preparing new interface defintions...", end="")
         for idx, i in enumerate(new_interfaces_data):
 
-            props = copy.deepcopy(base_interface_defn.properties)
+            props = copy.deepcopy(base_defn.properties)
             new_value = i["value"].item()  #  convert from numpy to native
             set_by_path(root=props, path=property_name, value=new_value)
 
             new_type_lab = str(idx)
-            if base_interface_defn.type_label:
-                new_type_lab = f"{base_interface_defn.type_label}-{new_type_lab}"
+            if base_defn.type_label:
+                new_type_lab = f"{base_defn.type_label}-{new_type_lab}"
 
             metadata = {}
             if additional_metadata:
@@ -1509,7 +1506,7 @@ class CIPHERInput:
                     metadata[k] = v[i["phase_pairs"][:, 0], i["phase_pairs"][:, 1]]
 
             new_int = InterfaceDefinition(
-                phase_types=base_interface_defn.phase_types,
+                phase_types=base_defn.phase_types,
                 type_label=new_type_lab,
                 properties=props,
                 phase_pairs=i["phase_pairs"].tolist(),
