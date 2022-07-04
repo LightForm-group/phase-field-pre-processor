@@ -745,7 +745,7 @@ class CIPHERGeometry:
                 f"definition: {phase_idx_int_is_nan}."
             )
 
-    def get_misorientation_matrix(self):
+    def get_misorientation_matrix(self, degrees=True):
         """Given phase type definitions that include orientation lists, get the
         misorientation matrix between all pairs."""
 
@@ -764,6 +764,9 @@ class CIPHERGeometry:
             )
             misori_matrix[idx_i, idx_i + 1 :] = misoris_i
             misori_matrix[idx_i + 1 :, idx_i] = misoris_i
+
+        if degrees:
+            misori_matrix = np.rad2deg(misori_matrix)
 
         return misori_matrix
 
