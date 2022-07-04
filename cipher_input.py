@@ -531,12 +531,32 @@ class CIPHERGeometry:
 
     def _get_phase_material(self):
         phase_material = np.ones(self.num_phases) * np.nan
+        all_phase_idx = []
         for mat_idx, mat in enumerate(self.materials):
-            phase_material[mat.phases] = mat_idx
+            try:
+                phase_material[mat.phases] = mat_idx
+                all_phase_idx.append(mat.phases)
+            except IndexError:
+                raise ValueError(
+                    f"Material {mat.name!r} phases indices {mat.phases} are invalid, "
+                    f"given the number of phases ({self.num_phases})."
+                )
         if np.any(np.isnan(phase_material)):
             raise ValueError(
                 "Not all phases are accounted for in the phase type definitions."
             )  # TODO: test raise
+
+        # check all phase indices form a consequtive range:
+        num_phases_range = set(np.arange(self.num_phases))
+        known_phases = set(np.hstack(all_phase_idx))
+        miss_phase_idx = num_phases_range - known_phases
+        bad_phase_idx = known_phases - num_phases_range
+        if miss_phase_idx:
+            raise ValueError(
+                f"Missing phase indices: {miss_phase_idx}. Bad phase indices: "
+                f"{bad_phase_idx}"
+            )  # TODO: test raise
+
         return phase_material.astype(int)
 
     def _get_phase_phase_type(self):
