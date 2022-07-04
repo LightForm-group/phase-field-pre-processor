@@ -1058,6 +1058,26 @@ class CIPHERGeometry:
     def seeds_grid(self):
         return np.round(self.grid_size * self.seeds / self.size, decimals=0).astype(int)
 
+    def remove_interface(self, interface_name):
+        """Remove an interface from the geometry. This will invalidate the geometry if
+        the specified interface is referred by any phase-pairs."""
+
+        idx = self.interface_names.index(interface_name)
+        interface = self.interfaces.pop(idx)
+
+        interface_map_tri = np.tril(-np.ones_like(self.interface_map)) + np.triu(
+            self.interface_map
+        )
+        phase_pairs = np.array(np.where(interface_map_tri == idx))
+
+        # set NaNs in interface map:
+        self._interface_map[phase_pairs[0], phase_pairs[1]] = np.nan
+
+        # realign indices in map that succeed the removed interface:
+        self._interface_map[self._interface_map > idx] -= 1
+
+        return interface, phase_pairs
+
 
 @dataclass
 class CIPHERInput:
