@@ -1374,6 +1374,9 @@ class CIPHERInput:
 
     def write_yaml(self, path):
         """Write the CIPHER input YAML file."""
+
+        self.geometry._validate_interface_map()
+
         cipher_input_data = {
             "header": self.get_header(),
             "solution_parameters": dict(sorted(self.solution_parameters.items())),
