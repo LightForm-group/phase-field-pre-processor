@@ -1289,6 +1289,7 @@ class CIPHERInput:
 
         # ignore unknown phase:
         phase_material = phase_material[1:] - 1
+        grain_quats = grain_quats[1:]
         voxel_phase = voxel_phase - 1
         mat_names = mat_names[1:]
 
