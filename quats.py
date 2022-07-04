@@ -17,7 +17,7 @@ def multiply_quaternions(q1, q2, P=1):
     q1 : ndarray of shape (4,)
     q2 : ndarray of shape (4,)
     P : int, optional
-        The "P" constant, either +1 or -1, as defined within [1].    
+        The "P" constant, either +1 or -1, as defined within [1].
 
     Returns
     -------
@@ -29,7 +29,7 @@ def multiply_quaternions(q1, q2, P=1):
         P J Konijnenberg, and M De Graef. "Consistent Representations
         of and Conversions between 3D Rotations". Modelling and Simulation
         in Materials Science and Engineering 23, no. 8 (1 December 2015):
-        083501. https://doi.org/10.1088/0965-0393/23/8/083501.  
+        083501. https://doi.org/10.1088/0965-0393/23/8/083501.
 
     """
 
@@ -51,7 +51,7 @@ def quat_multiply(q1, q2, P=1):
     q1 : ndarray of shape (..., 4,)
     q2 : ndarray of shape (..., 4,)
     P : int, optional
-        The "P" constant, either +1 or -1, as defined within [1].    
+        The "P" constant, either +1 or -1, as defined within [1].
 
     Returns
     -------
@@ -63,7 +63,7 @@ def quat_multiply(q1, q2, P=1):
         P J Konijnenberg, and M De Graef. "Consistent Representations
         of and Conversions between 3D Rotations". Modelling and Simulation
         in Materials Science and Engineering 23, no. 8 (1 December 2015):
-        083501. https://doi.org/10.1088/0965-0393/23/8/083501.  
+        083501. https://doi.org/10.1088/0965-0393/23/8/083501.
 
     """
     outer_shape = list(q1.shape[:-1])
@@ -72,7 +72,7 @@ def quat_multiply(q1, q2, P=1):
     s2, v2 = q2[..., 0], q2[..., 1:]
 
     q3 = np.zeros(q1.shape)
-    q3[..., 0] = (s1 * s2) - np.einsum('...i,...i->...', v1, v2)
+    q3[..., 0] = (s1 * s2) - np.einsum("...i,...i->...", v1, v2)
     q3[..., 1:] = (s1[..., None] * v2) + (s2[..., None] * v1) + P * np.cross(v1, v2)
 
     return q3
@@ -110,7 +110,7 @@ def axang2quat(axis, angle):
         P J Konijnenberg, and M De Graef. "Consistent Representations
         of and Conversions between 3D Rotations". Modelling and Simulation
         in Materials Science and Engineering 23, no. 8 (1 December 2015):
-        083501. https://doi.org/10.1088/0965-0393/23/8/083501.            
+        083501. https://doi.org/10.1088/0965-0393/23/8/083501.
 
     """
 
@@ -139,7 +139,7 @@ def quat2euler(quats, degrees=False, P=1):
     -------
     euler_angles : ndarray of shape (N, 3) of float
         Array of N row three-vectors of Euler angles, specified as proper Euler angles in
-        the Bunge convention (rotations are about Z, new X, new new Z).    
+        the Bunge convention (rotations are about Z, new X, new new Z).
 
     Notes
     -----
@@ -254,11 +254,13 @@ def quat_sample_random(number):
     """
 
     rand_nums = np.random.random((number, 3))
-    quats = np.array([
-        np.sqrt(1 - rand_nums[:, 0]) * np.sin(2 * np.pi * rand_nums[:, 1]),
-        np.sqrt(1 - rand_nums[:, 0]) * np.cos(2 * np.pi * rand_nums[:, 1]),
-        np.sqrt(rand_nums[:, 0]) * np.sin(2 * np.pi * rand_nums[:, 2]),
-        np.sqrt(rand_nums[:, 0]) * np.cos(2 * np.pi * rand_nums[:, 2]),
-    ]).T
+    quats = np.array(
+        [
+            np.sqrt(1 - rand_nums[:, 0]) * np.sin(2 * np.pi * rand_nums[:, 1]),
+            np.sqrt(1 - rand_nums[:, 0]) * np.cos(2 * np.pi * rand_nums[:, 1]),
+            np.sqrt(rand_nums[:, 0]) * np.sin(2 * np.pi * rand_nums[:, 2]),
+            np.sqrt(rand_nums[:, 0]) * np.cos(2 * np.pi * rand_nums[:, 2]),
+        ]
+    ).T
 
     return quats
