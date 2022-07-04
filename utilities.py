@@ -337,6 +337,7 @@ def write_MTEX_JSON_file(data, filename):
     with Path(filename).open("w") as fh:
         json.dump(data, fh)
 
+
 def unjsonify_dict(dct):
     converted_to_list = dct.pop("_converted_to_list")
     for k, v in dct.items():
@@ -344,6 +345,7 @@ def unjsonify_dict(dct):
             v = np.array(v)
             dct[k] = v
     return dct
+
 
 def jsonify_dict(dct):
     converted_to_list = []
@@ -354,3 +356,69 @@ def jsonify_dict(dct):
         dct[k] = v
     dct["_converted_to_list"] = converted_to_list
     return dct
+
+
+def get_by_path(root, path):
+    """Get a nested dict or list item according to its "key path"
+
+    Parameters
+    ----------
+    root : dict or list
+        Can be arbitrarily nested.
+    path : list of str
+        The address of the item to get within the `root` structure.
+
+    Returns
+    -------
+    sub_data : any
+
+    """
+
+    sub_data = root
+    for key in path:
+        sub_data = sub_data[key]
+
+    return sub_data
+
+
+def set_by_path(root, path, value):
+    """Set a nested dict or list item according to its "key path"
+
+    Parmaeters
+    ----------
+    root : dict or list
+        Can be arbitrarily nested.
+    path : list of str
+        The address of the item to set within the `root` structure.
+    value : any
+        The value to set.
+
+    """
+
+    sub_data = root
+    for key_idx, key in enumerate(path[:-1], start=1):
+        try:
+            sub_data = sub_data[key]
+        except KeyError:
+            set_by_path(sub_data, (key,), {})
+            sub_data = sub_data[key]
+
+    sub_data[path[-1]] = value
+
+
+def read_shockley(theta, E_max, theta_max, degrees=True):
+    """Misorientation-grain-boundary-energy relationship for low angle GBs."""
+
+    if degrees:
+        theta = np.deg2rad(theta)
+        theta_max = np.deg2rad(theta_max)
+
+    zero_idx = np.isclose(theta, 0)
+
+    A_0 = 1 + np.log(theta_max)
+    E_0 = E_max / theta_max
+    E = np.zeros_like(theta)
+    E[~zero_idx] = E_0 * theta[~zero_idx] * (A_0 - np.log(theta[~zero_idx]))
+    E[theta > theta_max] = np.max(E[theta < theta_max])
+
+    return E

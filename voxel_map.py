@@ -1,8 +1,9 @@
 import numpy as np
+import pyvista as pv
 
 
 class VoxelMap:
-    def __init__(self, region_ID, size, is_periodic):
+    def __init__(self, region_ID, size, is_periodic, region_data=None):
         """
         Parameters
         ---------
@@ -10,13 +11,25 @@ class VoxelMap:
 
         """
 
-        self.region_ID = np.asarray(region_ID)
+        self.region_ID = np.asarray(region_ID).astype(int)
         self.size = np.asarray(size)
         self.is_periodic = is_periodic
 
         self.neighbour_voxels = self.get_neighbour_voxels()
         self.neighbour_list = self.get_neighbour_list()
         self.num_regions = self.get_num_regions()
+
+        self.region_data = region_data or {}
+
+        for k, v in self.region_data.items():
+            v = np.asarray(v)
+            if v.shape[0] != self.num_regions:
+                raise ValueError(
+                    f"Region data must be the same length as the number of regions "
+                    f"({self.num_regions}), but specified lenght for {k!r} was "
+                    f"{v.shape[0]}."
+                )
+            self.region_data[k] = v
 
     @property
     def region_ID_flat(self):
@@ -29,6 +42,14 @@ class VoxelMap:
     @property
     def grid_size(self):
         return self.region_ID.shape
+
+    @property
+    def num_voxels(self):
+        return np.product(self.grid_size)
+
+    def generate_voxel_mask(self):
+        voxel_mask = np.zeros(self.grid_size, dtype=int)
+        return voxel_mask.astype(bool)
 
     def get_num_regions(self):
         return np.unique(self.region_ID).size
@@ -233,3 +254,43 @@ class VoxelMap:
         interface_idx_all[self.region_ID_bulk] = -1
 
         return interface_idx_all
+
+    @property
+    def grid_size_3D(self):
+        if self.dimension == 2:
+            return np.hstack([self.grid_size[::-1], 1])
+        else:
+            return np.asarray(self.grid_size)
+
+    @property
+    def size_3D(self):
+        if self.dimension == 2:
+            return np.hstack([self.size[::-1], self.size[0] / self.grid_size[0]])
+        else:
+            return np.asarray(self.size)
+
+    def get_pyvista_grid(self, include_region_ID=False):
+        """Experimental!"""
+
+        grid = pv.UniformGrid()
+
+        grid.dimensions = self.grid_size_3D + 1  # +1 to inject values on cell data
+        grid.spacing = self.size_3D / self.grid_size_3D
+
+        if include_region_ID:
+            grid.cell_data["data"] = self.region_ID.flatten(order="F")
+
+        return grid
+
+    def show(self):
+        """Experimental!"""
+
+        print("WARNING: experimental!")
+
+        grid = self.get_pyvista_grid()
+
+        grid.cell_data["data"] = self.region_ID.flatten(order="F")
+
+        pl = pv.PlotterITK()
+        pl.add_mesh(grid)
+        pl.show(ui_collapsed=False)

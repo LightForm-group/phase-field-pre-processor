@@ -33,6 +33,7 @@ class DiscreteVoronoi(VoxelMap):
         size=None,
         is_periodic=True,
         random_seed=None,
+        region_data=None,
     ):
         """
         Parameters
@@ -84,6 +85,7 @@ class DiscreteVoronoi(VoxelMap):
             region_ID=region_ID,
             size=size,
             is_periodic=is_periodic,
+            region_data=region_data,
         )
 
     @classmethod
@@ -91,7 +93,7 @@ class DiscreteVoronoi(VoxelMap):
         cls,
         size,
         grid_size,
-        num_regions=None,
+        num_regions,
         random_seed=None,
         is_periodic=True,
     ):
@@ -223,7 +225,7 @@ class DiscreteVoronoi(VoxelMap):
         seeds_periodic = np.concatenate(trans[:, None] + self.seeds_grid)
         return seeds_periodic
 
-    def show(self, show_voxels=False, show_periodic_seeds=False, layout=None):
+    def show_old(self, show_voxels=False, show_periodic_seeds=False, layout=None):
         """Show the discrete Voronoi tessellation."""
 
         layout = layout or {}

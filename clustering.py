@@ -4,9 +4,10 @@ from operator import le
 import pickle
 from pathlib import Path
 from dataclasses import dataclass
-from itertools import combinations_with_replacement, combinations
+from itertools import combinations
 from logging import getLogger, basicConfig
 from typing import Dict, List
+import warnings
 
 import numpy as np
 from scipy.stats import mode
@@ -16,9 +17,7 @@ import plotly
 import plotly.colors
 from scipy.ndimage import zoom
 from plotly import graph_objects
-from ruamel.yaml import YAML
-from ruamel.yaml.scalarstring import LiteralScalarString
-from cipher_input import CIPHERInput, InterfaceDefinition
+from cipher_input import CIPHERInput, InterfaceDefinition, MaterialDefinition
 
 from utilities import (
     get_coordinate_grid,
@@ -947,8 +946,8 @@ class Clusterer:
 
     def get_cipher_input(
         self,
-        materials: Dict,
-        interface_properties: Dict,
+        materials: List[MaterialDefinition],
+        interfaces: List[InterfaceDefinition],
         components: List,
         outputs: List,
         solution_parameters: Dict,
@@ -967,32 +966,40 @@ class Clusterer:
             intra_material_interface_tessellated_label=intra_material_interface_tessellated_label,
         )
 
-        if set(materials.keys()) != set(cipher_maps["materials"]):
-            raise ValueError(
-                f"The following materials must have properties assigned to them in the "
-                f"`materials` dict: {cipher_maps['materials']}."
-            )
-
+        defined_interfaces_by_name = {i.name: i for i in interfaces}
+        defined_interfaces_present = {i.name: False for i in interfaces}
         all_interfaces = []
         for interface in cipher_maps["interfaces"]:
             mats = interface["materials"]
             type_label = interface.get("type_label")
             int_name = InterfaceDefinition.get_name(mats, type_label)
-            if int_name not in interface_properties:
+            if int_name not in defined_interfaces_by_name:
                 raise ValueError(
-                    f"Missing interface properties for interface name {int_name}."
-                )
-            all_interfaces.append(
-                InterfaceDefinition(
-                    materials=mats,
-                    type_label=type_label,
-                    phase_pairs=interface.get("phase_pairs"),
-                    properties=interface_properties[int_name],
-                )
-            )
+                    f"Missing interface properties for interface name {int_name!r}."
+                )  # TODO: test raise
+            int_phase_pairs = interface.get("phase_pairs")
+            defined_interfaces_by_name[int_name].phase_pairs = int_phase_pairs
+            all_interfaces.append(defined_interfaces_by_name[int_name])
+            defined_interfaces_present[int_name] = True
 
-        # materials dict is now ordered the same as the DAMASK phases
-        materials = {k: materials.get(k) for k in cipher_maps["materials"]}
+        for int_name, is_present in defined_interfaces_present.items():
+            if not is_present:
+                warnings.warn(f"Defined interface {int_name!r} is not present.")
+
+        # materials are ordered the same as the DAMASK phases:
+        all_materials = []
+        defined_materials_by_name = {i.name: i for i in materials}
+        for k_idx, k in enumerate(cipher_maps["materials"]):
+            if k not in defined_materials_by_name:
+                raise ValueError(
+                    f"Missing material definition for material name {k!r}."
+                )  # TODO: test raise
+            phases_mat_k = np.where(cipher_maps["phase_material"] == k_idx)[0]
+            if not phases_mat_k.size:
+                warnings.warn(f"Defined material {k!r} has no phases.")
+
+            defined_materials_by_name[k].assign_phases(phases=phases_mat_k)
+            all_materials.append(defined_materials_by_name[k])
 
         sln_params = copy.deepcopy(solution_parameters)
         maxnrefine = sln_params.get("maxnrefine", 10)
@@ -1006,12 +1013,11 @@ class Clusterer:
 
         inp = CIPHERInput.from_voxel_phase_map(
             voxel_phase=cipher_maps["voxel_phase"],
-            phase_material=cipher_maps["phase_material"],
-            materials=materials,
+            materials=all_materials,
             interfaces=all_interfaces,
             components=components,
             outputs=outputs,
-            solution_parameters=solution_parameters,
+            solution_parameters=sln_params,
             size=cipher_maps["size"],
         )
         return inp
@@ -1047,17 +1053,25 @@ class Clusterer:
 
         return cipher_voxel_phase, damask_phase, cipher_size
 
-    def get_cipher_intra_material_phase_pairs(self, phase_material):
+    def get_cipher_material_phase_pairs(self, phase_material):
 
         num_materials = np.unique(phase_material).size
-        intra_material_phases = []
+        intra_material_phase_pairs = []
         for i in range(num_materials):
-            intra_material_phases.append([])
+            intra_material_phase_pairs.append([])
             like_mat_idx = np.where(phase_material == i)[0]
             for phase_1_idx, phase_2_idx in combinations(like_mat_idx, r=2):
-                intra_material_phases[-1].append((phase_1_idx, phase_2_idx))
+                intra_material_phase_pairs[-1].append((phase_1_idx, phase_2_idx))
 
-        intra_material_phases = [set(i) for i in intra_material_phases]
+        intra_material_phase_pairs = [set(i) for i in intra_material_phase_pairs]
+
+        num_phases = len(phase_material)
+        inter_material_phase_pairs = {}
+        pm_arr = np.tile(phase_material, (num_phases, 1))
+        inter_mat_pairs = list(combinations(range(num_materials), r=2))
+        for i in inter_mat_pairs:
+            phase_idx = np.where(np.logical_and(pm_arr == i[1], pm_arr.T == i[0]))
+            inter_material_phase_pairs[i] = np.array(phase_idx).T
 
         # interfaces produced by Voronoi tessellation after segmentation, for each material:
         tessellated_interfaces = [[] for _ in range(num_materials)]
@@ -1071,9 +1085,10 @@ class Clusterer:
 
         # interfaces produced by segmentation, for each material:
         segmented_interfaces = [
-            i - j for i, j in zip(intra_material_phases, tessellated_interfaces)
+            i - j for i, j in zip(intra_material_phase_pairs, tessellated_interfaces)
         ]
         out = {
+            "inter_material_phase_pairs": inter_material_phase_pairs,
             "tessellated_phase_pairs": tessellated_interfaces,
             "segmented_phase_pairs": segmented_interfaces,
         }
@@ -1094,11 +1109,10 @@ class Clusterer:
             damask_phase=damask_phase,
         )
 
-        intra_mat_phase_pairs = self.get_cipher_intra_material_phase_pairs(
-            phase_material_mapping
-        )
-        tessellated_phase_pairs = intra_mat_phase_pairs["tessellated_phase_pairs"]
-        segmented_phase_pairs = intra_mat_phase_pairs["segmented_phase_pairs"]
+        mat_phase_pairs = self.get_cipher_material_phase_pairs(phase_material_mapping)
+        inter_material_phase_pairs = mat_phase_pairs["inter_material_phase_pairs"]
+        tessellated_phase_pairs = mat_phase_pairs["tessellated_phase_pairs"]
+        segmented_phase_pairs = mat_phase_pairs["segmented_phase_pairs"]
 
         # cipher materials are equivalent to DAMASK phases:
         cipher_materials = list(
@@ -1109,7 +1123,11 @@ class Clusterer:
 
         # interfaces for distinct material pairs:
         interfaces = [
-            {"materials": (i[0], i[1])} for i in combinations(cipher_materials, r=2)
+            {
+                "materials": tuple(cipher_materials[i] for i in mat_pair),
+                "phase_pairs": phase_pairs,
+            }
+            for mat_pair, phase_pairs in inter_material_phase_pairs.items()
         ]
 
         # interfaces for same material pairs:
