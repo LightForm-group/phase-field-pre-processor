@@ -8,6 +8,7 @@ import pyvista as pv
 import h5py
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
+from damask import Orientation
 
 from discrete_voronoi import DiscreteVoronoi
 from utilities import set_by_path
@@ -752,18 +753,19 @@ class CIPHERGeometry:
         misori_matrix = np.zeros((self.num_phases, self.num_phases), dtype=float)
         all_oris = []
         for i in self.phase_types:
-            all_oris.extend(i.orientations)
+            all_oris.extend(i.orientations)  # TODO: is this correct order of phases?
         all_oris = np.vstack(all_oris)
+        all_oris = Orientation(all_oris, family="cubic")  # TODO: generalise symmetry
 
-        for idx_i, ori_i in enumerate(all_oris):
-            other_oris = all_oris[idx_i + 1 :]
-            # TODO: consider symmetry!
-            misoris_i = quat_angle_between(
-                np.tile(ori_i, (other_oris.shape[0], 1)),
-                other_oris,
-            )
-            misori_matrix[idx_i, idx_i + 1 :] = misoris_i
-            misori_matrix[idx_i + 1 :, idx_i] = misoris_i
+        misori_matrix = np.zeros((self.num_phases, self.num_phases), dtype=float)
+        for idx in range(self.num_phases):
+            print(f"Finding misorientation for orientation {idx + 1}/{len(all_oris)}")
+            ori_i = all_oris[idx : idx + 1]
+            other_oris = all_oris[idx + 1 :]
+            if other_oris.size:
+                disori_i = ori_i.disorientation(other_oris).as_axis_angle()[..., -1]
+                misori_matrix[idx, idx + 1 :] = disori_i
+                misori_matrix[idx + 1 :, idx] = disori_i
 
         if degrees:
             misori_matrix = np.rad2deg(misori_matrix)
